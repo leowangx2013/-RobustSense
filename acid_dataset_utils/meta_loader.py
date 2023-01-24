@@ -21,12 +21,6 @@ def load_meta():
             elif speed == ">30":
                 speed = 50
 
-            # meta_info[filename] = {
-            #     "vehicle_type": vehicle_type,
-            #     "speed": float(speed),
-            #     "terrain": TERRAIN[terrain],
-            #     "distance": float(distance)}
-
             meta_info[filename] = list(vehicle_type) + [float(speed)] + list(terrain_type) + [float(distance)]
 
     return meta_info

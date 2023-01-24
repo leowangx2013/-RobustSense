@@ -56,7 +56,7 @@ FILES = ['Gv1a1002.mat', 'Gv1a2002.mat', 'Gv1a1012.mat', 'Gv1a2012.mat', 'Gv1b10
 
 SAMPLE_LEN = 1024
 
-def gene_data(FILES_SET):
+def gene_data(FILES_SET, mode="fft"):
 	meta_info = load_meta()
 	# print("meta_info: ", meta_info.keys())
 	# x_dict = {}
@@ -106,24 +106,31 @@ def gene_data(FILES_SET):
 		while i+SAMPLE_LEN <= x.shape[1]:
 			file_sample_count[n] += 1
 			
-			fft_signal = np.abs(np.fft.fft(x[:,i:i+SAMPLE_LEN], axis=-1))[:, :SAMPLE_LEN//2]
-			# f, t, Zxx = signal.stft(x[:,i:i+SAMPLE_LEN], 1024, nperseg=128, noverlap=64)
-			# Zxx = np.abs(Zxx)
-		
-			# Only take 1 axis from each sensor
-			fft_signal = np.concatenate([[fft_signal[0]], [fft_signal[3]]], axis=0)
+			if mode == "fft":
+				fft_signal = np.abs(np.fft.fft(x[:,i:i+SAMPLE_LEN], axis=-1))[:, :SAMPLE_LEN//2]
+				fft_signal = np.concatenate([[fft_signal[0]], [fft_signal[3]]], axis=0)
+
+				X.append(fft_signal)
+				Y.append(y)
+			elif mode == "stft":
+				f, t, Zxx = signal.stft(x[:,i:i+SAMPLE_LEN], 1024, nperseg=128, noverlap=64)
+				stft_signal = np.abs(Zxx)
+				stft_signal = np.transpose(stft_signal, (0, 2, 1))
 			
-			X.append(fft_signal)
-			Y.append(y)
+				# Only take 1 axis from each sensor
+				stft_signal = np.concatenate([[stft_signal[0]], [stft_signal[3]]], axis=0)
+				X.append(stft_signal)
+				Y.append(y)
 			# item = x[:,i:i+SAMPLE_LEN]
 			# x_dict[label].append(item)
 			i += SAMPLE_LEN
 
-	# X = np.array(X)
-	# X = (X - np.min(X)) / (np.max(X) - np.min(X))
+	X = np.array(X)
+	if mode == "fft":
+		X = (X - np.min(X)) / (np.max(X) - np.min(X))
 	return np.array(X), np.array(Y), file_sample_count, file_labels
 
-def load_data():
+def load_data(mode="fft"):
 	test_files = []
 	with open(TEST_FILE, "r") as f:
 		for line in f.readlines():
@@ -133,8 +140,8 @@ def load_data():
 	for fn in FILES:
 		if fn not in test_files:
 			train_files.append(fn)
-	train_X, train_Y, train_sample_count, train_labels = gene_data(train_files)
-	test_X, test_Y, test_sample_count, test_labels = gene_data(test_files)
+	train_X, train_Y, train_sample_count, train_labels = gene_data(train_files, mode=mode)
+	test_X, test_Y, test_sample_count, test_labels = gene_data(test_files, mode=mode)
 
 	return train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels
 	
