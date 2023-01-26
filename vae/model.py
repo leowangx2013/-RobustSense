@@ -9,9 +9,9 @@ class Flatten(nn.Module):
     def __init__(self):
         super(Flatten, self).__init__()
     def forward(self, x):
-        print("x.shape: ", x.shape)
+        # print("x.shape: ", x.shape)
         batch_size = x.shape[0]
-        print("x.view(batch_size, -1): ", x.view(batch_size, -1).shape)
+        # print("x.view(batch_size, -1): ", x.view(batch_size, -1).shape)
         return x.view(batch_size, -1)
 
 class Mean(nn.Module):
@@ -30,7 +30,9 @@ class MLP(nn.Module):
             q.append(("Linear_%d" % i, nn.Linear(in_dim, out_dim)))
             if (i < len(hidden_size)-2) or ((i == len(hidden_size) - 2) and (last_activation)):
                 q.append(("BatchNorm_%d" % i, nn.BatchNorm1d(out_dim)))
-                q.append(("ReLU_%d" % i, nn.ReLU(inplace=True)))
+                # q.append(("ReLU_%d" % i, nn.ReLU(inplace=True)))
+                q.append(("Sigmoid_%d" % i, nn.Sigmoid()))
+
         self.mlp = nn.Sequential(OrderedDict(q))
     def forward(self, x):
         return self.mlp(x)
@@ -43,21 +45,30 @@ class Encoder(nn.Module):
             layers = [nn.Linear(in_feat, out_feat)]
             if normalize:
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
-            layers.append(nn.Sigmoid())
+            # layers.append(nn.Sigmoid())
+            layers.append(nn.ReLU())
             return layers
 
-        self.aud_encode = nn.Sequential(
+        self.aud_encode_real = nn.Sequential(
+            *linear_block(signal_len, 256, normalize=False),
+            *linear_block(256, 128),
+        )
+        self.aud_encode_imag = nn.Sequential(
             *linear_block(signal_len, 256, normalize=False),
             *linear_block(256, 128),
         )
 
-        self.sei_encode = nn.Sequential(
+        self.sei_encode_real = nn.Sequential(
+            *linear_block(signal_len, 256, normalize=False),
+            *linear_block(256, 128),
+        )  
+        self.sei_encode_imag = nn.Sequential(
             *linear_block(signal_len, 256, normalize=False),
             *linear_block(256, 128),
         )       
 
         self.encode = nn.Sequential(
-            *linear_block(128, 64),
+            *linear_block(128, 64, normalize=True),
         )
 
         self.calc_mean = MLP([64+ncond, 64, nhid], last_activation = False)
@@ -65,16 +76,25 @@ class Encoder(nn.Module):
 
     def forward(self, x, y = None):
         # print("x.shape: ", x.shape)
-        x_aud = torch.squeeze(x[:,0,:], 1)
-        x_sei = torch.squeeze(x[:,1,:], 1)
-        x_aud = torch.unsqueeze(self.aud_encode(x_aud), axis=1)
-        x_sei = torch.unsqueeze(self.sei_encode(x_sei), axis=1)
-        # print("after mod encode, x_aud.shape: ", x_aud.shape)
+        x_aud_real = x[:,0,:]
+        x_aud_imag = x[:,1,:]
+        x_sei_real = x[:,2,:]
+        x_sei_imag = x[:,3,:]
 
-        x = torch.cat((x_aud, x_sei), axis=1)
+        # print("x_aud_real.shape: ", x_aud_real.shape)
+        # print("x_sei_real.shape: ", x_sei_real.shape)
+        # x_aud = torch.transpose(x_aud, 1, 2)
+        # x_sei = torch.transpose(x_sei, 1, 2)
+        x_aud_real = torch.unsqueeze(self.aud_encode_real(x_aud_real), axis=1)
+        x_aud_imag = torch.unsqueeze(self.aud_encode_imag(x_aud_imag), axis=1)
+        x_sei_real = torch.unsqueeze(self.sei_encode_real(x_sei_real), axis=1)
+        x_sei_imag = torch.unsqueeze(self.sei_encode_imag(x_sei_imag), axis=1)
+        # x_aud = torch.unsqueeze(self.aud_encode(x_aud), axis=1)
+        # x_sei = torch.unsqueeze(self.sei_encode(x_sei), axis=1)
+    
+        x = torch.cat((x_aud_real, x_aud_imag, x_sei_real, x_sei_imag), axis=1)
         # print("after concat, x.shape: ", x.shape)
         x = torch.mean(x, axis=1)
-        # print("after mean, x.shape: ", x.shape)
         x = self.encode(x)
         # y = self.meta_mapping(y)
         if (y is None):
@@ -87,15 +107,19 @@ class Decoder(nn.Module):
     def __init__(self, signal_len, nhid = 16, ncond=0):
         super(Decoder, self).__init__()
         self.signal_len = signal_len
-        self.decode = nn.Sequential(MLP([nhid+ncond, 128, 256, 512, 2*signal_len], last_activation = False), nn.Sigmoid())
+        # self.decode = nn.Sequential(MLP([nhid+ncond, 128, 256, 512, 4*signal_len], last_activation = False), nn.Sigmoid())
+        self.decode = nn.Sequential(
+            MLP([nhid+ncond, 128, 256, 512]),
+            MLP([512, 512, 4*signal_len], last_activation=False), 
+            nn.ReLU())
     def forward(self, z, y = None):
         if (y is None):
-            return self.decode(z).view(-1, 2, self.signal_len)
+            return self.decode(z).view(-1, 4, self.signal_len)
         else:
             # print("z.shape: ", z.shape)
             # print("y.shape: ", y.shape)
             # print("torch.cat((z, y), dim=1): ", torch.cat((z, y), dim=1).shape)
-            return self.decode(torch.cat((z, y), dim=1)).view(-1, 2, self.signal_len)
+            return self.decode(torch.cat((z, y), dim=1)).view(-1, 4, self.signal_len)
 
 class cVAE(nn.Module):
     def __init__(self, signal_len, label_len, nhid = 16, ncond = 64):
@@ -141,8 +165,8 @@ class cVAE(nn.Module):
     
 BCE_loss = nn.BCELoss(reduction = "sum")
 def loss(X, X_hat, mean, logvar):
-    reconstruction_loss = BCE_loss(X_hat, X) # better than MSE
-    # reconstruction_loss = torch.mean(torch.pow(X_hat - X, 2))
+    # reconstruction_loss = BCE_loss(X_hat, X) # better than MSE
+    reconstruction_loss = torch.mean(torch.pow(X_hat - X, 2))
     # print("logvar: ", torch.mean(logvar), ", mean: ", torch.mean(mean))
     KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean**2)
     # print("reconstruction_loss: ", reconstruction_loss, ", KL_divergence * beta: ", KL_divergence*beta)

@@ -98,24 +98,24 @@ def visualize_reconstruct_signals(n_start, batch_signal, batch_label, batch_gen,
         fig = plt.figure(figsize=(8, 12), dpi=120)
         plt.subplot(411)
 
-        ori_aud = signal[0,:]
+        ori_aud = np.sqrt(np.square(signal[0,:]) + np.square(signal[1,:]))
         # audio1 = np.abs(np.fft.fft(audio1))[1: len(audio1) // 2]
         ax1 = plt.subplot(4, 1, 1)
         ax1.plot(ori_aud, color='red')
         ax1.set_title('Original Audio')
 
-        ori_sei = signal[1,:]
+        ori_sei = np.sqrt(np.square(signal[2,:]) + np.square(signal[3,:]))
         # seismic1 = np.abs(np.fft.fft(seismic1))[1: len(seismic1) // 2]
         ax2 = plt.subplot(4, 1, 2)
         ax2.plot(ori_sei, color='red')
         ax2.set_title('Original Seismic')
 
-        gen_aud = gen[0,:]
+        gen_aud = np.sqrt(np.square(gen[0,:]) + np.square(gen[1,:]))
         ax3 = plt.subplot(4, 1, 3)
         ax3.plot(gen_aud, color='blue')
         ax3.set_title('Gen Audio')
 
-        gen_sei = gen[1,:]
+        gen_sei = np.sqrt(np.square(gen[2,:]) + np.square(gen[3,:]))
         ax4 = plt.subplot(4, 1, 4)
         ax4.plot(gen_sei, color='blue')
         ax4.set_title('Gen Seismic')      
@@ -135,13 +135,13 @@ def visualize_single_signal(name, signal, label, output_path):
     fig = plt.figure(figsize=(8, 6), dpi=120)
     plt.subplot(211)
 
-    aud = signal[0,:]
+    aud = np.sqrt(np.square(signal[0,:]) + np.square(signal[1,:]))
     # audio1 = np.abs(np.fft.fft(audio1))[1: len(audio1) // 2]
     ax1 = plt.subplot(2, 1, 1)
     ax1.plot(aud, color='blue')
     ax1.set_title('Audio')
 
-    sei = signal[1,:]
+    sei = np.sqrt(np.square(signal[2,:]) + np.square(signal[3,:]))
     ax2 = plt.subplot(2, 1, 2)
     ax2.plot(sei, color='red')
     ax2.set_title('Seismic')

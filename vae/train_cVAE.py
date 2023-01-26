@@ -62,7 +62,7 @@ for y in train_Y:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # def __init__(self, signal_len, label_len, nhid = 16, ncond = 64):
-net = cVAE(512, 14, nhid = 8, ncond = 64)
+net = cVAE(1024, 14, nhid = 8, ncond = 64)
 net.to(device)
 print(net)
 save_name = f"cVAE_{opt.run}.pt"
@@ -105,8 +105,8 @@ for epoch in range(max_epochs):
 
     train_loss, n, start = 0.0, 0, time.time()
     
-    average_rec_loss = []
-    average_kl_loss = []
+    accumulate_rec_loss = 0.0
+    accumulate_kl_loss = 0.0
 
     # for X, y in tqdm.tqdm(train_iter, ncols = 50):
     for n, (X, y) in enumerate(zip(train_X, train_Y)):
@@ -126,9 +126,13 @@ for epoch in range(max_epochs):
                 batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
                 skip_n=1)
 
+        # print("batch_samples: ", batch_samples.shape)
+        # print("X_hat: ", X_hat.shape)
+        # exit()
+
         reconstruction_loss, KL_divergence = loss(batch_samples, X_hat, mean, logvar)
-        average_rec_loss.append(reconstruction_loss.cpu().item())
-        average_kl_loss.append(KL_divergence.cpu().item())
+        accumulate_rec_loss += reconstruction_loss.cpu().item()
+        accumulate_kl_loss += KL_divergence.cpu().item()
         l = (reconstruction_loss + opt.beta * KL_divergence).to(device)
 
         optimizer.zero_grad()
@@ -143,9 +147,9 @@ for epoch in range(max_epochs):
 
 
     train_loss /= n
-    print('epoch %d, train loss %.4f , mean rec loss %.4f, mean kl loss %.4r, time %.1f sec'
-          % (epoch, train_loss, np.mean(average_rec_loss), np.mean(average_kl_loss),
-           time.time() - start))
+    print('epoch %d, train loss %.4f , rec loss %.4f, kl loss %.4f, weighted kl loss %.4f, time %.1f sec'
+          % (epoch, train_loss, accumulate_rec_loss/n, accumulate_kl_loss/n,
+          accumulate_kl_loss/n * opt.beta, time.time() - start))
     
     adjust_lr(optimizer)
     

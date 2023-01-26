@@ -30,6 +30,10 @@ if not os.path.exists(f"./visualization/{opt.run}_gen"):
 
 cvae_config = load_yaml("./cVAE_config.yaml")
 
+OUTPUT_PT_FILE_PATH = f"../augmented_data/{opt.run}"
+if not os.path.exists(OUTPUT_PT_FILE_PATH):
+    Path(OUTPUT_PT_FILE_PATH).mkdir(parents=True, exist_ok=True)
+
 ############## loading data ###################
 train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data()
 print("train_X.shape: ", train_X.shape)
@@ -85,6 +89,20 @@ for vehicle_type in cvae_config["masked_vehicle_types"]:
                     # label = [float(i) for i in label]
                     # list(vehicle_type) + [float(speed)] + list(terrain_type) + [float(distance)]
                     gen_signal = net.generate(label)
-                    gen_signal = gen_signal.cpu().detach().numpy()
+                    gen_signal = gen_signal.cpu().detach().numpy()[0] # Only one item in a batch
                     visualize_single_signal(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal, label, f"./visualization/{opt.run}_gen")
-                    
+
+                    # print("gen_signal: ", gen_signal.shape)
+
+                    gen_signal = np.concatenate([gen_signal, gen_signal[::-1]], axis=-1)
+                    gen_signal_ifft = np.fft.ifft(gen_signal)
+                    # print("gen_signal_ifft: ", gen_signal_ifft.shape)
+                    # print("distance type: ", distance_type)
+                    sample = {"data": 
+                        {"shake": 
+                            {"audio": np.expand_dims(gen_signal[0], 0), 
+                            "seismic": np.expand_dims(gen_signal[1], 0)}}, 
+                            "label": {"vehicle_type": one_hot_encode(vehicle_type, 9), "speed": speed_type, 
+                                "terrain_type": one_hot_encode(terrain_type, 3), "distance": distance_type}}
+                    output_path = os.path.join(OUTPUT_PT_FILE_PATH, f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.pt")
+                    torch.save(sample, output_path)
