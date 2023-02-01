@@ -67,10 +67,10 @@ for y in train_Y:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if opt.model == "cVAE_1d":
-    net = cVAE_1d(1024, 14, nhid = 8, ncond = 64)
+    net = cVAE_1d(1024, 14, nhid = 128, ncond = 32)
 elif opt.model == "cVAE_2d":
     _, _, Zxx = signal.stft(np.random.rand(opt.signal_len), nperseg=128, noverlap=64)
-    net = cVAE_2d(Zxx.shape, 14, nhid = 8, ncond = 64)
+    net = cVAE_2d(Zxx.shape, 14, nhid = 128, ncond = 32)
 
 net.to(device)
 print(net)

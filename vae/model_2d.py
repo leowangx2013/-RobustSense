@@ -77,10 +77,8 @@ class Encoder(nn.Module):
             nn.ReLU(),
         )
 
-        # self.calc_mean = MLP([512+64, 128, nhid], last_activation = False)
-        # self.calc_logvar = MLP([512+64, 128, nhid], last_activation = False)
-        self.calc_mean = MLP([1024+64, nhid])
-        self.calc_logvar = MLP([1024+64, nhid])
+        self.calc_mean = MLP([1024+ncond, nhid])
+        self.calc_logvar = MLP([1024+ncond, nhid])
 
 
     def forward(self, x, y = None):
@@ -129,11 +127,23 @@ class Decoder(nn.Module):
         
         self.deconv = nn.Sequential(
             *conv_trans_block(256, 256, 5),
-            *conv_trans_block(256, 128, 5),
-            *conv_trans_block(128, 32, 5, padding=1, output_padding=0, activation=False),
-            nn.Conv2d(32, 4, 5, padding="same"),
+            # *conv_trans_block(256, 128, 5),
+            # *conv_trans_block(128, 32, 5, padding=1, output_padding=0, activation=False),
+            # nn.Conv2d(32, 4, 5, padding="same"),
             # nn.Tanh()
             )
+        
+        self.aud_deconv = nn.Sequential(
+            *conv_trans_block(128, 64, 5),
+            *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
+            nn.Conv2d(32, 2, 5, padding="same"),        
+        )
+
+        self.sei_deconv = nn.Sequential(
+            *conv_trans_block(128, 64, 5),
+            *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
+            nn.Conv2d(32, 2, 5, padding="same"),    
+        )
 
     def forward(self, z, y):
         # print("z.shape: ", z.shape)
@@ -142,7 +152,15 @@ class Decoder(nn.Module):
 
         z = self.fc(torch.cat((z, y), dim=1)).view(-1, 256, self.spect_shape[0]//8, self.spect_shape[1]//8)
         # print("after linear decoding, z.shape: ", z.shape)
-        res = self.deconv(z)
+        z = self.deconv(z)
+        # print("after deconv: ", z.shape)
+        (z_aud, z_sei) = torch.split(z, [128, 128], dim=1)
+        # print("z_aud.shape: ", z_aud.shape)
+        z_aud = self.aud_deconv(z_aud)
+        z_sei = self.sei_deconv(z_sei)
+        # print("after aud_deconv, z_aud.shape: ", z_aud.shape)
+        res = torch.cat((z_aud, z_sei), axis=1)
+        # exit()
         # print("after tranpose conv, res.shape: ", res.shape)
         return res
 
