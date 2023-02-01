@@ -91,8 +91,8 @@ def mask_training_data(Xs, Ys, masked_vehicle_types, masked_terrain_types):
     return np.array(masked_Xs), np.array(masked_Ys)
 
 def visualize_reconstruct_signals(n_start, batch_signal, batch_label, batch_gen, output_path, skip_n=1000):
-    batch_signal = batch_signal[::skip_n]
-    batch_label = batch_label[::skip_n]
+    # batch_signal = batch_signal[::skip_n]
+    # batch_label = batch_label[::skip_n]
     
     for i, (signal, gen, label) in enumerate(zip(batch_signal, batch_gen, batch_label)):
         fig = plt.figure(figsize=(8, 12), dpi=120)
@@ -154,3 +154,65 @@ def visualize_single_signal(name, signal, label, output_path):
     plt.clf()
     plt.cla()
     # plt.close()
+
+
+def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, output_path, skip_n=1000):
+    # print("batch_signal.shape: ", batch_signal.shape)
+    # batch_signal = batch_signal[::skip_n]
+    # batch_label = batch_label[::skip_n]
+
+    for i, (signal, gen, label) in enumerate(zip(batch_signal, batch_gen, batch_label)):
+        # print("ori means: ", np.mean(signal, axis=(1,2)))
+        # print("gen means: ", np.mean(gen, axis=(1,2)))
+
+        f_len = signal.shape[1]
+        t_len = signal.shape[2]
+        # print("f_len: ", f_len)
+        # print("t_len: ", t_len)
+        
+        ori_audio_real = signal[0]
+        ori_audio_imag = signal[1]
+        ori_audio_abs = np.sqrt(np.square(ori_audio_real) + np.square(ori_audio_imag))
+        # print("ori_audio_abs: ", ori_audio_abs.shape)
+        ori_seismic_real = signal[2]
+        ori_seismic_imag = signal[3]
+        ori_seismic_abs = np.sqrt(np.square(ori_seismic_real) + np.square(ori_seismic_imag))
+
+        gen_audio_real = gen[0]
+        gen_audio_imag = gen[1]
+        gen_audio_abs = np.sqrt(np.square(gen_audio_real) + np.square(gen_audio_imag))
+        # print("gen_audio_abs: ", gen_audio_abs.shape)
+
+        gen_seismic_real = gen[2]
+        gen_seismic_imag = gen[3]
+        gen_seismic_abs = np.sqrt(np.square(gen_seismic_real) + np.square(gen_seismic_imag))
+
+        fig = plt.figure(figsize=(8, 12), dpi=120)
+        plt.subplot(411)
+
+        ax1 = plt.subplot(4, 1, 1)
+        plt.pcolormesh(range(t_len), range(f_len), ori_audio_abs, vmin=0, shading='gouraud')
+        # plt.pcolormesh(range(f_len), range(t_len), ori_audio_abs, vmin=0, shading='gouraud')
+
+        ax1.set_title('Original Audio')
+
+        ax2 = plt.subplot(4, 1, 2)
+        plt.pcolormesh(range(t_len), range(f_len), ori_seismic_abs, vmin=0, shading='gouraud')
+        ax2.set_title('Original Seismic')
+
+        ax3 = plt.subplot(4, 1, 3)
+        plt.pcolormesh(range(t_len), range(f_len), gen_audio_abs, vmin=0, shading='gouraud')
+        ax3.set_title('Gen Audio')
+
+        ax4 = plt.subplot(4, 1, 4)
+        plt.pcolormesh(range(t_len), range(f_len), gen_seismic_abs, vmin=0, shading='gouraud')
+        ax4.set_title('Gen Seismic')      
+
+        fig.suptitle("Vehicle Type: {}, Speed: {}, Terrain: {}, Distance: {}".format(
+            np.argmax(label[:9]), label[9], np.argmax(label[10:13]), label[13]))
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_path, "{}.png".format(n_start + i)))
+        plt.clf()
+        plt.cla()
+    plt.close()

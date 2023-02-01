@@ -3,7 +3,9 @@ import numpy as np
 import torch.nn.functional as F
 import torchvision
 import os, time, tqdm
-from model import loss, cVAE
+from model_1d import loss_1d, cVAE_1d
+from model_2d import loss_2d, cVAE_2d
+
 from pathlib import Path
 import yaml
 
@@ -18,19 +20,18 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
-parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
-parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
+parser.add_argument("--lr", type=float, default=0.001, help="adam: learning rate")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
 # parser.add_argument("--n_classes", type=int, default=9, help="number of classes for dataset")
 parser.add_argument("--label_len", type=int, default=14, help="number of classes for dataset")
 # parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
-parser.add_argument("--signal_len", type=int, default=512, help="length of the time series data")
+parser.add_argument("--signal_len", type=int, default=1024, help="length of the time series data")
 parser.add_argument("--channels", type=int, default=2, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=400, help="interval between image sampling")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
 parser.add_argument("--gpu", type=str, default="0", help="Visible GPU")
 parser.add_argument("--mode", type=str, default="train", help="Mode: train or test")
+parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
 parser.add_argument("--beta", type=float, default=1, help="weight for KL divergence")
 
 opt = parser.parse_args()
@@ -44,7 +45,11 @@ if not os.path.exists(f"./visualization/{opt.run}"):
 cvae_config = load_yaml("./cVAE_config.yaml")
 
 ############## loading data ###################
-train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data()
+if opt.model == "cVAE_1d":
+    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="fft")
+elif opt.model == "cVAE_2d":
+    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
+# train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft")
 print("train_X.shape: ", train_X.shape)
 print("train_Y.shape: ", train_Y.shape)
 ############## masking data ###################
@@ -52,17 +57,21 @@ train_X, train_Y = mask_training_data(train_X, train_Y, cvae_config["masked_vehi
 test_X, test_Y = mask_training_data(test_X, test_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
 print("masked_train_X.shape: ", train_X.shape)
 print("masked_train_Y.shape: ", train_Y.shape)
+
 vehicle_type_set = set()
 for y in train_Y:
     # if np.argmax(Ys[:9]) in masked_vehicle_types and np.argmax(Ys[10:13]) in masked_terrain_types:
     vehicle_type_set.add(f"{np.argmax(y[:9])} - {np.argmax(y[10:13])}")
 
-# print("vehicle_type_set: ", vehicle_type_set)
 ############## loading models ###################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# def __init__(self, signal_len, label_len, nhid = 16, ncond = 64):
-net = cVAE(1024, 14, nhid = 8, ncond = 64)
+if opt.model == "cVAE_1d":
+    net = cVAE_1d(1024, 14, nhid = 8, ncond = 64)
+elif opt.model == "cVAE_2d":
+    _, _, Zxx = signal.stft(np.random.rand(opt.signal_len), nperseg=128, noverlap=64)
+    net = cVAE_2d(Zxx.shape, 14, nhid = 8, ncond = 64)
+
 net.to(device)
 print(net)
 save_name = f"cVAE_{opt.run}.pt"
@@ -75,16 +84,17 @@ def adjust_lr(optimizer, decay_rate=0.95):
         param_group['lr'] *= decay_rate
 
 if opt.mode == "train":
-    retrain = True
-    if os.path.exists(save_name):
-        print("Model parameters have already been trained before. Retrain ? (y/n)")
-        ans = input()
-        if not (ans == 'y'):
-            checkpoint = torch.load(save_name, map_location = device)
-            net.load_state_dict(checkpoint["net"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            for g in optimizer.param_groups:
-                g['lr'] = lr
+    retrain = False
+    # retrain = True
+    # if os.path.exists(save_name):
+        # print("Model parameters have already been trained before. Retrain ? (y/n)")
+        # ans = input()
+        # if not (ans == 'y'):
+        #     checkpoint = torch.load(save_name, map_location = device)
+        #     net.load_state_dict(checkpoint["net"])
+        #     optimizer.load_state_dict(checkpoint["optimizer"])
+        #     for g in optimizer.param_groups:
+        #         g['lr'] = lr
 
 ############### training #########################
 max_epochs = 1000
@@ -120,17 +130,28 @@ for epoch in range(max_epochs):
         batch_labels = torch.Tensor(batch_labels).to(device)
         X_hat, mean, logvar = net(batch_samples, batch_labels)
 
-        if epoch % 10 == 0:
+        if epoch > 0 and epoch % 10 == 0:
+        # if epoch % 1 == 0:
+
             # Plot the first sample for each batch
-            visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
-                batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
-                skip_n=1)
+            if opt.model == "cVAE_1d":
+                visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
+                    batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
+                    skip_n=1)
+            elif opt.model == "cVAE_2d":
+                visualize_reconstruct_spect(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
+                    batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
+                    skip_n=1)                
 
         # print("batch_samples: ", batch_samples.shape)
         # print("X_hat: ", X_hat.shape)
         # exit()
+        if opt.model == "cVAE_1d":
+            reconstruction_loss, KL_divergence = loss_1d(batch_samples, X_hat, mean, logvar)
+        elif opt.model == "cVAE_2d":
+            reconstruction_loss, KL_divergence = loss_2d(batch_samples, X_hat, mean, logvar)
 
-        reconstruction_loss, KL_divergence = loss(batch_samples, X_hat, mean, logvar)
+        reconstruction_loss, KL_divergence = loss_1d(batch_samples, X_hat, mean, logvar)
         accumulate_rec_loss += reconstruction_loss.cpu().item()
         accumulate_kl_loss += KL_divergence.cpu().item()
         l = (reconstruction_loss + opt.beta * KL_divergence).to(device)
