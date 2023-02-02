@@ -157,20 +157,19 @@ def visualize_single_signal(name, signal, label, output_path):
     plt.cla()
     # plt.close()
 
-def stft_to_fft(array_real, array_imag, fs=1024):
+def stft_to_time_seq(array_real, array_imag, fs=1024):
     _, time_seq = signal.istft(array_real+1j*array_imag, fs=fs)
-    # print("array_real.shape: ", len(array_real)
-    # print("time_seq shape: ", time_seq.shape)
+    return time_seq
 
-    # print("fft(time_seq): ", fft(time_seq).shape)
+def time_seq_to_fft(time_seq, fs=1024):
     return np.abs(fft(time_seq)[1: len(time_seq) // 2])
 
 def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, output_path, skip_n=1000):
     # print("batch_signal.shape: ", batch_signal.shape)
-    # batch_signal = batch_signal[::skip_n]
-    # batch_label = batch_label[::skip_n]
-
+  
     for i, (signal, gen, label) in enumerate(zip(batch_signal, batch_gen, batch_label)):
+        if i % skip_n != 0:
+            continue
         # print("ori means: ", np.mean(signal, axis=(1,2)))
         # print("gen means: ", np.mean(gen, axis=(1,2)))
 
@@ -194,7 +193,7 @@ def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, o
         gen_seismic_imag = gen[3]
         gen_seismic_abs = np.sqrt(np.square(gen_seismic_real) + np.square(gen_seismic_imag))
 
-        fig = plt.figure(figsize=(20, 12), dpi=120)
+        fig = plt.figure(figsize=(30, 12), dpi=120)
         # plt.subplot()
 
         audio_vmin = np.min([ori_audio_abs, gen_audio_abs])
@@ -203,44 +202,66 @@ def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, o
         seismic_vmin = np.min([ori_seismic_abs, gen_seismic_abs])
         seismic_vmax = np.max([ori_seismic_abs, gen_seismic_abs])
 
-        ax1 = plt.subplot(2, 4, 1)
+        ax1 = plt.subplot(3, 4, 1)
         plt.pcolormesh(range(t_len), range(f_len), ori_audio_abs, vmin=audio_vmin, vmax=audio_vmax, shading='gouraud', cmap="plasma")
         ax1.set_title('Original Audio')
 
-        ax2 = plt.subplot(2, 4, 2)
+        ax2 = plt.subplot(3, 4, 2)
         plt.pcolormesh(range(t_len), range(f_len), ori_seismic_abs, vmin=seismic_vmin, vmax=seismic_vmax, shading='gouraud', cmap="plasma")
         ax2.set_title('Original Seismic')
 
-        ax3 = plt.subplot(2, 4, 3)
+        ax3 = plt.subplot(3, 4, 3)
         plt.pcolormesh(range(t_len), range(f_len), gen_audio_abs, vmin=audio_vmin, vmax=audio_vmax, shading='gouraud', cmap="plasma")
         ax3.set_title('Gen Audio')
 
-        ax4 = plt.subplot(2, 4, 4)
+        ax4 = plt.subplot(3, 4, 4)
         plt.pcolormesh(range(t_len), range(f_len), gen_seismic_abs, vmin=seismic_vmin, vmax=seismic_vmax, shading='gouraud', cmap="plasma")
         ax4.set_title('Gen Seismic')      
 
         # Plot FFT
-        ori_audio_fft = stft_to_fft(ori_audio_real, ori_audio_imag)
-        ori_seismic_fft = stft_to_fft(ori_seismic_real, ori_seismic_imag)
-        gen_audio_fft = stft_to_fft(gen_audio_real, gen_audio_imag)
-        gen_seismic_fft = stft_to_fft(gen_seismic_real, gen_seismic_imag)
+        ori_audio_time_seq = stft_to_time_seq(ori_audio_real, ori_audio_imag)
+        ori_seismic_time_seq = stft_to_time_seq(ori_seismic_real, ori_seismic_imag)
+        gen_audio_time_seq = stft_to_time_seq(gen_audio_real, gen_audio_imag)
+        gen_seismic_time_seq = stft_to_time_seq(gen_seismic_real, gen_seismic_imag)
 
-        ax5 = plt.subplot(2, 4, 5)
+        ori_audio_fft = time_seq_to_fft(ori_audio_time_seq)
+        ori_seismic_fft = time_seq_to_fft(ori_seismic_time_seq)
+        gen_audio_fft = time_seq_to_fft(gen_audio_time_seq)
+        gen_seismic_fft = time_seq_to_fft(gen_seismic_time_seq)
+
+        ax5 = plt.subplot(3, 4, 5)
         ax5.plot(ori_audio_fft)
         ax5.set_title('Original Audio FFT')
 
-        ax6 = plt.subplot(2, 4, 6)
+        ax6 = plt.subplot(3, 4, 6)
         ax6.plot(ori_seismic_fft)
         ax6.set_title('Original Seismic FFT')
 
-        ax7 = plt.subplot(2, 4, 7)
+        ax7 = plt.subplot(3, 4, 7)
         ax7.plot(gen_audio_fft)
         ax7.set_title('Gen Audio FFT')
 
-        ax8 = plt.subplot(2, 4, 8)
+        ax8 = plt.subplot(3, 4, 8)
         ax8.plot(gen_seismic_fft)
         ax8.set_title('Gen Seismic FFT')      
  
+        # Plot time sequence
+        ax9 = plt.subplot(3, 4, 9)
+        ax9.plot(ori_audio_time_seq)
+        ax9.set_title('Original Audio Time Seq')
+
+        ax10 = plt.subplot(3, 4, 10)
+        ax10.plot(ori_seismic_time_seq)
+        ax10.set_title('Original Seismic Time Seq')
+
+        ax11 = plt.subplot(3, 4, 11)
+        ax11.plot(gen_audio_time_seq)
+        ax11.set_title('Gen Audio Time Seq')
+
+        ax12 = plt.subplot(3, 4, 12)
+        ax12.plot(gen_seismic_time_seq)
+        ax12.set_title('Gen Seismic Time Seq')      
+
         fig.suptitle("Vehicle Type: {}, Speed: {}, Terrain: {}, Distance: {}".format(
             np.argmax(label[:9]), label[9], np.argmax(label[10:13]), label[13]))
 

@@ -70,7 +70,7 @@ if opt.model == "cVAE_1d":
     net = cVAE_1d(1024, 14, nhid = 128, ncond = 32)
 elif opt.model == "cVAE_2d":
     _, _, Zxx = signal.stft(np.random.rand(opt.signal_len), nperseg=128, noverlap=64)
-    net = cVAE_2d(Zxx.shape, 14, nhid = 128, ncond = 32)
+    net = cVAE_2d(Zxx.shape, 14, nhid = 128, ncond = 16)
 
 net.to(device)
 print(net)
@@ -118,6 +118,9 @@ for epoch in range(max_epochs):
     accumulate_rec_loss = 0.0
     accumulate_kl_loss = 0.0
 
+    X_means = []
+    X_hat_means = []
+
     # for X, y in tqdm.tqdm(train_iter, ncols = 50):
     for n, (X, y) in enumerate(zip(train_X, train_Y)):
         # for X, y in zip(train_X, train_Y):
@@ -131,27 +134,30 @@ for epoch in range(max_epochs):
         X_hat, mean, logvar = net(batch_samples, batch_labels)
 
         if epoch > 0 and epoch % 10 == 0:
-        # if epoch % 1 == 0:
-
-            # Plot the first sample for each batch
-            if opt.model == "cVAE_1d":
-                visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
-                    batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
-                    skip_n=1)
-            elif opt.model == "cVAE_2d":
-                visualize_reconstruct_spect(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
-                    batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}",
-                    skip_n=1)                
-
+            if n % ((opt.batch_size + 1) * 100) == 0:
+                # Plot the first sample for each batch
+                if opt.model == "cVAE_1d":
+                    visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
+                        batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
+                elif opt.model == "cVAE_2d":
+                    visualize_reconstruct_spect(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
+                        batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
         # print("batch_samples: ", batch_samples.shape)
         # print("X_hat: ", X_hat.shape)
         # exit()
+
+        X_means.append(np.mean(batch_samples.detach().cpu().numpy(), axis = (2, 3)))
+        X_hat_means.append(np.mean(X_hat.detach().cpu().numpy(), axis = (2, 3)))
+
+        # print("X shape: ", batch_samples.shape, ", X_mean: ", np.mean(batch_samples.detach().cpu().numpy(), axis = (2, 3)))
+        # print("X_hat shape: ", X_hat.shape, ", X_hat_mean: ", np.mean(X_hat.detach().cpu().numpy(), axis = (2, 3)))
+        # exit()
+
         if opt.model == "cVAE_1d":
             reconstruction_loss, KL_divergence = loss_1d(batch_samples, X_hat, mean, logvar)
         elif opt.model == "cVAE_2d":
             reconstruction_loss, KL_divergence = loss_2d(batch_samples, X_hat, mean, logvar)
 
-        reconstruction_loss, KL_divergence = loss_1d(batch_samples, X_hat, mean, logvar)
         accumulate_rec_loss += reconstruction_loss.cpu().item()
         accumulate_kl_loss += KL_divergence.cpu().item()
         l = (reconstruction_loss + opt.beta * KL_divergence).to(device)
@@ -166,12 +172,15 @@ for epoch in range(max_epochs):
         batch_samples = []
         batch_labels = []
 
-
     train_loss /= n
     print('epoch %d, train loss %.4f , rec loss %.4f, kl loss %.4f, weighted kl loss %.4f, time %.1f sec'
           % (epoch, train_loss, accumulate_rec_loss/n, accumulate_kl_loss/n,
           accumulate_kl_loss/n * opt.beta, time.time() - start))
     
+    print("X_means: ", np.mean(X_means, axis = (0, 1)), ", X_hat_means: ", np.mean(X_hat_means, axis = (0, 1)))
+    # print("X_means.shape: ", np.array(X_means).shape)
+    # exit()
+
     adjust_lr(optimizer)
     
     if (early_stop(train_loss, net, optimizer)):

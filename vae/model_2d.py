@@ -32,6 +32,7 @@ class MLP(nn.Module):
                 q.append(("BatchNorm_%d" % i, nn.BatchNorm1d(out_dim)))
                 q.append(("ReLU_%d" % i, nn.ReLU(inplace=True)))
                 # q.append(("Sigmoid_%d" % i, nn.Sigmoid()))
+                q.append(("Dropout_%d" % i, nn.Dropout(p=0.3)))
 
         self.mlp = nn.Sequential(OrderedDict(q))
     def forward(self, x):
@@ -44,37 +45,38 @@ class Encoder(nn.Module):
         def conv_block(in_channels, out_channels, kernel_size, normalize=True, stride=1, padding="same"):
             layers = [nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, stride=stride, bias=not normalize)]
             if normalize:
-                layers.append(nn.BatchNorm2d(out_channels, 0.9))
+                layers.append(nn.BatchNorm2d(out_channels))
             layers.append(nn.ReLU())
             layers.append(nn.Dropout(p=0.3))
             return layers
 
         self.aud_encode = nn.Sequential(
-            *conv_block(2, 32, 5, normalize=True, stride=2, padding=2),
+            *conv_block(2, 32, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
-            *conv_block(32, 64, 5, normalize=True, stride=2, padding=2),
+            *conv_block(32, 64, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
             # *conv_block(128, 256, 5, normalize=True, stride=2, padding=2),
         )
 
         self.sei_encode = nn.Sequential(
-            *conv_block(2, 32, 5, normalize=True, stride=2, padding=2),
+            *conv_block(2, 32, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
-            *conv_block(32, 64, 5, normalize=True, stride=2, padding=2),
+            *conv_block(32, 64, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
             # *conv_block(128, 256, 5, normalize=True, stride=2, padding=2),
         )  
 
         self.encode = nn.Sequential(
-            *conv_block(128, 256, 5, normalize=True, stride=2, padding=1),
+            *conv_block(128, 256, 5, stride=2, padding=1),
             # nn.MaxPool2d((2, 2), stride=2),
         )
-        # print("spect_shape: ", spect_shape)
+        print("spect_shape: ", spect_shape)
         # print("256*spect_shape[0]//8*spect_shape[1]//8 = ", 256*spect_shape[0]//8*spect_shape[1]//8)
 
         self.fc = nn.Sequential(nn.Linear(256*(spect_shape[0]//8)*(spect_shape[1]//8), 1024, bias=False),
-            nn.BatchNorm1d(1024, 0.9),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
+            nn.Dropout(p=0.3)
         )
 
         self.calc_mean = MLP([1024+ncond, nhid])
@@ -119,8 +121,9 @@ class Decoder(nn.Module):
             layers = [nn.ConvTranspose2d(in_channels, out_channels, kernel_size, 
                 stride=stride, dilation=dilation, padding=padding, output_padding=output_padding, bias=not normalize)]
             if normalize:
-                layers.append(nn.BatchNorm2d(out_channels, 0.8))
-            layers.append(nn.ReLU())
+                layers.append(nn.BatchNorm2d(out_channels))
+            if activation:
+                layers.append(nn.ReLU())
             return layers
        
         self.fc = nn.Sequential(MLP([ncond+nhid, 256*(spect_shape[0]//8)*(spect_shape[1]//8)]))
@@ -131,7 +134,7 @@ class Decoder(nn.Module):
             # *conv_trans_block(128, 32, 5, padding=1, output_padding=0, activation=False),
             # nn.Conv2d(32, 4, 5, padding="same"),
             # nn.Tanh()
-            )
+        )
         
         self.aud_deconv = nn.Sequential(
             *conv_trans_block(128, 64, 5),
@@ -209,14 +212,35 @@ class cVAE_2d(nn.Module):
 def loss_2d(X, X_hat, mean, logvar):
     # print("X.shape: ", X.shape, ", X mean: ", torch.mean(X))
     # print("X_hat.shape: ", X_hat.shape, ", X_hat mean: ", torch.mean(X_hat))
+    # exit()
+
+    # print("X mean: ", torch.mean(X, axis=(0, 2, 3)), ", X_hat mean: ", torch.mean(X_hat, axis=(0, 2, 3)))
     # reconstruction_loss = BCE_loss(X_hat, X) # better than MSE
-    # audio_rec_loss = torch.mean(torch.square(torch.sqrt(torch.square(X_hat[0]) + torch.square(X_hat[1])) - 
+    # audio_abs_loss = torch.mean(torch.square(torch.sqrt(torch.square(X_hat[0]) + torch.square(X_hat[1])) - 
     #     torch.sqrt(torch.square(X[0]) + torch.square(X[1]))))
-    # seismic_rec_loss = torch.mean(torch.square(torch.sqrt(torch.square(X_hat[2]) + torch.square(X_hat[3])) - 
+    # seismic_abs_loss = torch.mean(torch.square(torch.sqrt(torch.square(X_hat[2]) + torch.square(X_hat[3])) - 
     #     torch.sqrt(torch.square(X[2]) + torch.square(X[3]))))    
-    # reconstruction_loss = audio_rec_loss + seismic_rec_loss
-    reconstruction_loss = torch.mean(torch.square(X_hat - X))
-    # print("logvar: ", torch.mean(logvar), ", mean: ", torch.mean(mean))
+    
+    # reconstruction_loss = audio_abs_loss + seismic_abs_loss
+
+    # X_audio = X[0:2]
+    # norm_X_audio = (X_audio - torch.mean(X_audio)) / torch.std(X_audio)
+    # X_seismic = X[2:4]
+    # norm_X_seismic = (X_seismic - torch.mean(X_seismic)) / torch.std(X_seismic)
+    # X_hat_audio = X_hat[0:2]
+    # norm_X_hat_audio = (X_hat_audio - torch.mean(X_hat_audio)) / torch.std(X_hat_audio)
+    # X_hat_seismic = X_hat[2:4]
+    # norm_X_hat_seismic = (X_hat_seismic - torch.mean(X_hat_seismic)) / torch.std(X_hat_seismic)
+    # reconstruction_loss = torch.mean(torch.square(norm_X_audio - norm_X_hat_audio)) + torch.mean(torch.square(norm_X_seismic - norm_X_hat_seismic))
+
+    # reconstruction_loss = []
+    # for i in range(4):
+        # x = (X[:,i,:,:] - torch.mean(X[:,i,:,:])) / torch.std(X[:,i,:,:])
+        # x_hat = (X_hat[:,i,:,:] - torch.mean(X_hat[:,i,:,:])) / torch.std(X_hat[:,i,:,:]) 
+        # reconstruction_loss += torch.mean(torch.square(x - x_hat))
+        # reconstruction_loss.append(torch.mean(torch.square(x - x_hat)))
+    reconstruction_loss = torch.mean(torch.square(X - X_hat))
+
     KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean**2)
     # print("reconstruction_loss: ", reconstruction_loss, ", KL_divergence * beta: ", KL_divergence*beta)
     # return reconstruction_loss + beta * KL_divergence

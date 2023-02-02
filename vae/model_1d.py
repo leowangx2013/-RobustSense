@@ -44,7 +44,7 @@ class Encoder(nn.Module):
         def linear_block(in_feat, out_feat, normalize=True):
             layers = [nn.Linear(in_feat, out_feat)]
             if normalize:
-                layers.append(nn.BatchNorm1d(out_feat, 0.8))
+                layers.append(nn.BatchNorm1d(out_feat))
             # layers.append(nn.Sigmoid())
             layers.append(nn.ReLU())
             return layers
