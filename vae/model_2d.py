@@ -51,7 +51,7 @@ class Encoder(nn.Module):
             return layers
 
         self.aud_encode = nn.Sequential(
-            *conv_block(2, 32, 5, stride=2, padding=2),
+            *conv_block(1, 32, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
             *conv_block(32, 64, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
@@ -59,7 +59,7 @@ class Encoder(nn.Module):
         )
 
         self.sei_encode = nn.Sequential(
-            *conv_block(2, 32, 5, stride=2, padding=2),
+            *conv_block(1, 32, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
             *conv_block(32, 64, 5, stride=2, padding=2),
             # nn.MaxPool2d((2, 2), stride=2),
@@ -85,10 +85,12 @@ class Encoder(nn.Module):
 
     def forward(self, x, y = None):
         # print("x.shape: ", x.shape)
-        x_aud = x[:,0:2,:,:]
-        x_sei = x[:,2:4,:,:]
+        # x_aud = x[:,0:2,:,:]
+        # x_sei = x[:,2:4,:,:]
 
-        # print("x_aud.shape: ", x_aud.shape)
+        x_aud = x[:,0:1,:]
+        x_sei = x[:,1:2,:]
+
         # print("x_sei_real.shape: ", x_sei_real.shape)
         # x_aud = torch.spose(x_aud, 1, 2)
         # x_sei = torch.transpose(x_sei, 1, 2)
@@ -139,13 +141,13 @@ class Decoder(nn.Module):
         self.aud_deconv = nn.Sequential(
             *conv_trans_block(128, 64, 5),
             *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
-            nn.Conv2d(32, 2, 5, padding="same"),        
+            nn.Conv2d(32, 1, 5, padding="same"),        
         )
 
         self.sei_deconv = nn.Sequential(
             *conv_trans_block(128, 64, 5),
             *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
-            nn.Conv2d(32, 2, 5, padding="same"),    
+            nn.Conv2d(32, 1, 5, padding="same"),    
         )
 
     def forward(self, z, y):

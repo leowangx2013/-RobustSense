@@ -83,15 +83,15 @@ def eval_given_model(args, classifier, dataloader, loss_func):
 
         con_mat = confusion_matrix(all_labels, all_predictions)
         con_mat = con_mat / con_mat.sum(axis=1, keepdims=True)
-
+        
         df_cm = pd.DataFrame(con_mat, range(len(con_mat)), range(len(con_mat)))
+        # df_cm = pd.DataFrame(con_mat, range(9), range(9))
+
         # df_cm = pd.DataFrame(con_mat, range(2), range(2))
         plt.figure(figsize=(10,7))
 
         plt.title("Accuracy = {}, Precision = {}, Recall = {}, F1 = {}".format("%.2f" % mean_acc, "%.2f" % mean_precision, "%.2f" % mean_recall, "%.2f" % mean_f1))
-        if "vehicle_type" in args.dataset:
-            s = sn.heatmap(df_cm, annot=True, xticklabels=['0', '1', '3', '4', '5', '7', '8'], yticklabels=['0', '1', '3', '4', '5', '7', '8'])
-        elif "terrain_type" in args.dataset:
+        if "terrain_type" in args.dataset:
             s = sn.heatmap(df_cm, annot=True, xticklabels=["Desert", "Arctic", "Normal"], yticklabels=["Desert", "Arctic", "Normal"])
         elif "speed" in args.dataset:
             # s = sn.heatmap(df_cm, annot=True, xticklabels=["1", "5", "10", "15", "20", "30", "40", "50"], yticklabels=["1", "5", "10", "15", "20", "30", "40", "50"])
@@ -99,12 +99,16 @@ def eval_given_model(args, classifier, dataloader, loss_func):
         elif "distance" in args.dataset:
             # s = sn.heatmap(df_cm, annot=True, xticklabels=["5", "10", "25", "50", "75"], yticklabels=["5", "10", "25", "50", "75"])
             s = sn.heatmap(df_cm, annot=True, xticklabels=["1~25", "26~75"], yticklabels=["1~25", "26~75"])
-           
+        else:
+            # s = sn.heatmap(df_cm, annot=True, xticklabels=['0', '1', '3', '4', '5', '7', '8'], yticklabels=['0', '1', '3', '4', '5', '7', '8'])
+            s = sn.heatmap(df_cm, annot=True, xticklabels=sorted(set(all_predictions)), yticklabels=sorted(set(all_predictions)))
 
         s.set(xlabel='Prediction', ylabel='True Label')
         plt.savefig(f"./conf_{args.dataset}.png")
         plt.clf()
 
+    print("all_labels: ", all_labels)
+    print("all_predictions: ", all_predictions)
     return mean_classifier_loss, mean_f1, mean_acc, mean_precision, mean_recall, con_mat
 
 

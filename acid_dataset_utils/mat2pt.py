@@ -12,7 +12,6 @@ INDEX_FILE_PATH = "/home/tianshi/data/ACIDS/pt_index"
 # DISTANCE_ENCODING = {"5": 0, "10": 1, "25": 2, "50": 3, "75": 4}
 
 train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft")
-print("train_X.shape", train_X.shape)
 
 vehicle_type_set = set()
 speed_set = set()

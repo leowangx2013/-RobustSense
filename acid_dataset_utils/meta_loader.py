@@ -20,7 +20,11 @@ def load_meta():
                 continue
             elif speed == ">30":
                 speed = 50
-
+            # print("vehicle_type: ", len(vehicle_type))
+            # print("speed: ", 1)
+            # print("terrain_type: ", len(terrain_type))
+            # print("distance: ", 1)
+            # exit()
             meta_info[filename] = list(vehicle_type) + [float(speed)] + list(terrain_type) + [float(distance)]
 
     return meta_info

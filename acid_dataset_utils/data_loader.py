@@ -54,9 +54,9 @@ FILES = ['Gv1a1002.mat', 'Gv1a2002.mat', 'Gv1a1012.mat', 'Gv1a2012.mat', 'Gv1b10
 	'Gv5c1104.mat', 'Gv5d1122.mat', 'Gv6c1106.mat', 'Gv6d1090.mat', 'Gv6d2090.mat', 'Gv7c1058.mat', 'Gv8a2060.mat',
 	'Gv8b2060.mat', 'Gv8c1218.mat', 'Gv8c1220.mat', 'Gv8d1112.mat', 'Gv9c1072.mat', 'Gv9c2072.mat', 'Gv9d1128.mat']
 
-SAMPLE_LEN = 1024
+def gene_data(FILES_SET, sample_len, mode="fft"):
+	overlap = sample_len // 2
 
-def gene_data(FILES_SET, mode="fft"):
 	meta_info = load_meta()
 	# print("meta_info: ", meta_info.keys())
 	# x_dict = {}
@@ -100,37 +100,59 @@ def gene_data(FILES_SET, mode="fft"):
 
 		x = np.concatenate((x_a,x_s),axis=0)
 
-		x = (x - np.mean(x, axis=1, keepdims=True) ) / np.std(x, axis=1, keepdims=True)
-	
+		# Only take the middle 50% data
+		# x = x[:, x.shape[1]//4:x.shape[1]*3//4]
+		# print("before norm, x: ", np.mean(x, axis=1))
+		# x = (x - np.mean(x, axis=1, keepdims=True) ) / np.std(x, axis=1, keepdims=True)
+
 		i = 0
-		while i+SAMPLE_LEN <= x.shape[1]:
+		while i+sample_len <= x.shape[1]:
 			file_sample_count[n] += 1
 			
 			if mode == "fft":
-				fft_signal = np.abs(np.fft.fft(x[:,i:i+SAMPLE_LEN], axis=-1))[:, :SAMPLE_LEN//2]
-				fft_signal = np.concatenate([[fft_signal[0]], [fft_signal[3]]], axis=0)
-
+				# fft_signal = np.abs(np.fft.fft(x[:,i:i+SAMPLE_LEN], axis=-1))[:, :SAMPLE_LEN//2]
+				fft_signal = np.fft.fft(x[:,i:i+sample_len], axis=-1)[:, :sample_len//2]
+				fft_signal = np.concatenate([fft_signal.real, fft_signal.imag], axis=0) 
+				fft_signal = np.concatenate([[fft_signal[0]], [fft_signal[5]], [fft_signal[3]], [fft_signal[8]]], axis=0) # Keep the real and imag parts of sensor 0 and 3 
 				X.append(fft_signal)
 				Y.append(y)
 			elif mode == "stft":
-				f, t, Zxx = signal.stft(x[:,i:i+SAMPLE_LEN], 1024, nperseg=128, noverlap=64)
+				f, t, Zxx = signal.stft(x[:,i:i+sample_len], 1024, nperseg=128, noverlap=64)
+				# f, t, Zxx = signal.stft(x[:,i:i+sample_len], 1024, nperseg=511)
+
 				stft_signal = np.abs(Zxx)
-				stft_signal = np.transpose(stft_signal, (0, 2, 1))
-			
+				# print("Zxx.shape: ", Zxx.shape)
+				# exit()
+				# print("f len: ", len(f))
+				# print("t len: ", len(t))
+				# stft_signal = np.concatenate([Zxx.real, Zxx.imag], axis=0)
+				
+				# stft_signal = np.transpose(stft_signal, (0, 2, 1))
+
 				# Only take 1 axis from each sensor
-				stft_signal = np.concatenate([[stft_signal[0]], [stft_signal[3]]], axis=0)
+				# stft_signal = np.concatenate([[stft_signal[0]], [stft_signal[5]], [stft_signal[3]], [stft_signal[8]]], axis=0) # Keep the real and imag parts of sensor 0 and 3
+				# stft_signal = np.concatenate([[stft_signal[0]], [stft_signal[0]], [stft_signal[0]], [stft_signal[0]]], axis=0) # Keep the real and imag parts of sensor 0 and 3
+				# stft_signal = np.concatenate([[Zxx[0].real], [Zxx[0].real], [Zxx[0].real], [Zxx[0].real]], axis=0) # Keep the real and imag parts of sensor 0 and 3
+				stft_signal = np.concatenate([[np.abs(Zxx[0])], [np.abs(Zxx[3])]], axis=0) # Keep the real and imag parts of sensor 0 and 3
+
+				# print("stft_signal: ", stft_signal.shape)
+				# print("before norm, stft_signal: ", np.mean(stft_signal, axis=(1,2)))
+				# stft_signal = (stft_signal - np.mean(stft_signal, axis=(1,2), keepdims=True)) / np.std(stft_signal, axis=(1,2), keepdims=True)
+				# print("stft_signal shape: ", stft_signal.shape, ", after norm, stft_signal: ", np.mean(stft_signal, axis=(1,2)))
+				# exit()
+				# print("stft_signal: ", stft_signal.shape)
+				# exit()
 				X.append(stft_signal)
 				Y.append(y)
 			# item = x[:,i:i+SAMPLE_LEN]
 			# x_dict[label].append(item)
-			i += SAMPLE_LEN
-
+			i = i + sample_len - overlap
 	X = np.array(X)
-	if mode == "fft":
-		X = (X - np.min(X)) / (np.max(X) - np.min(X))
+	# if mode == "fft":
+		# X = (X - np.min(X)) / (np.max(X) - np.min(X))
 	return np.array(X), np.array(Y), file_sample_count, file_labels
 
-def load_data(mode="fft"):
+def load_data(sample_len=1024, mode="fft"):
 	test_files = []
 	with open(TEST_FILE, "r") as f:
 		for line in f.readlines():
@@ -140,8 +162,24 @@ def load_data(mode="fft"):
 	for fn in FILES:
 		if fn not in test_files:
 			train_files.append(fn)
-	train_X, train_Y, train_sample_count, train_labels = gene_data(train_files, mode=mode)
-	test_X, test_Y, test_sample_count, test_labels = gene_data(test_files, mode=mode)
+	train_X, train_Y, train_sample_count, train_labels = gene_data(train_files, sample_len, mode=mode)
+	test_X, test_Y, test_sample_count, test_labels = gene_data(test_files, sample_len, mode=mode)
 
 	return train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels
 	
+def load_generated_data(data_path):
+	Xs = []
+	Ys = []
+	for fn in glob.glob(os.path.join(data_path, "*.pt")):
+		data = torch.load(fn)
+		audio_data = data['data']['shake']['audio']
+		seismic_data = data['data']['shake']['seismic']
+
+		Xs.append(np.concatenate([audio_data, seismic_data], axis=0))
+
+		label = data['label']['vehicle_type']
+		Ys.append(label)
+		
+	return np.array(Xs), np.array(Ys)
+
+		
