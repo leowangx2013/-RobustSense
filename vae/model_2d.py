@@ -161,7 +161,7 @@ class Decoder(nn.Module):
         
         self.deconv = nn.Sequential(
             *conv_trans_block(64, 128, (3, 5)),
-            nn.Conv2d(128, 128, 3, padding="same"),
+            # nn.Conv2d(128, 128, 3, padding="same"),
             # nn.Conv2d(128, 128, 3, padding="same"),
             # nn.Conv2d(128, 128, 3, padding="same"),
 
@@ -175,15 +175,18 @@ class Decoder(nn.Module):
         
         self.aud_deconv = nn.Sequential(
             *conv_trans_block(64, 32, (3, 5)),
-            *conv_trans_block(32, 1, (3, 5)),
-            nn.ReLU(),
+            *conv_trans_block(32, 16, (3, 5)),
+            # *conv_trans_block(16, 1, (3,3), stride=(1, 1), dilation=1, padding=(1,1), output_padding=0, activation=True, normalize=True)
+            # nn.ReLU(),
+            nn.Conv2d(16, 1, (3, 5), padding="same"),
         )
 
         self.sei_deconv = nn.Sequential(
             *conv_trans_block(64, 32, (3, 5)),
-            *conv_trans_block(32, 1, (3, 5)),
-            nn.ReLU(),
-            # nn.Conv2d(4, 1, 5, padding="same"),    
+            *conv_trans_block(32, 16, (3, 5)),
+            # *conv_trans_block(16, 1, (3,3), stride=(1, 1), dilation=1, padding=(1,1), output_padding=0, activation=True, normalize=True)
+            # nn.ReLU(),
+            nn.Conv2d(16, 1, (3, 5), padding="same"),
         )
 
     def forward(self, z, y):

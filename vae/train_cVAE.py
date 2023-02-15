@@ -77,7 +77,7 @@ save_name = f"cVAE_{opt.run}.pt"
 
 lr = 0.1
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.0001)
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.01)
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0)
 
 def adjust_lr(optimizer, decay_rate=0.95):
     for param_group in optimizer.param_groups:
@@ -150,7 +150,7 @@ for epoch in range(max_epochs):
     
     print("Xs_means: ", np.mean(Xs_means, axis = 0), ", Xs_hat_means: ", np.mean(Xs_hat_means, axis = 0))
 
-    adjust_lr(optimizer)
+    # adjust_lr(optimizer)
     
     if (early_stop(accumulate_train_loss, net, optimizer)):
         break
