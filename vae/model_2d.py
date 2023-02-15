@@ -37,9 +37,28 @@ class MLP(nn.Module):
         self.mlp = nn.Sequential(OrderedDict(q))
     def forward(self, x):
         return self.mlp(x)
-    
+
+class RecurrentBlock(nn.Module):
+    def __init__(self, in_channel, out_channel, num_layers=2, dropout_ratio=0) -> None:
+        """The initialization of the recurrent block."""
+        super().__init__()
+
+        self.gru = nn.GRU(
+            in_channel, out_channel, num_layers, bias=True, batch_first=True, dropout=dropout_ratio, bidirectional=True
+        )
+
+    def forward(self, x):
+        # [b, c, i] --> [b, i, c]
+        x = x.permute(0, 2, 1)
+
+        # GRU --> mean
+        output, hidden_output = self.gru(x)
+        # output = torch.mean(output, dim=1)
+
+        return output
+
 class Encoder(nn.Module):
-    def __init__(self, spect_shape, nhid = 128, ncond = 32):
+    def __init__(self, spect_shape, nhid = 128, ncond = 15):
         super(Encoder, self).__init__()
         
         def conv_block(in_channels, out_channels, kernel_size, normalize=True, stride=1, padding="same"):
@@ -48,32 +67,28 @@ class Encoder(nn.Module):
                 layers.append(nn.BatchNorm2d(out_channels))
             layers.append(nn.ReLU())
             layers.append(nn.Dropout(p=0.3))
-            return layers
+            return layers            
 
+        # Input format: [batch, feature, time, freq]
         self.aud_encode = nn.Sequential(
-            *conv_block(1, 32, 5, stride=2, padding=2),
-            # nn.MaxPool2d((2, 2), stride=2),
-            *conv_block(32, 64, 5, stride=2, padding=2),
-            # nn.MaxPool2d((2, 2), stride=2),
-            # *conv_block(128, 256, 5, normalize=True, stride=2, padding=2),
+            *conv_block(1, 32, (3, 5), stride=(1, 2), padding=(1,2)),
+            *conv_block(32, 64, (3, 5), stride=(1, 2), padding=(1,2)),
         )
 
         self.sei_encode = nn.Sequential(
-            *conv_block(1, 32, 5, stride=2, padding=2),
-            # nn.MaxPool2d((2, 2), stride=2),
-            *conv_block(32, 64, 5, stride=2, padding=2),
-            # nn.MaxPool2d((2, 2), stride=2),
-            # *conv_block(128, 256, 5, normalize=True, stride=2, padding=2),
+            *conv_block(1, 32, (3, 5), stride=(1, 2), padding=(1,2)),
+            *conv_block(32, 64, (3, 5), stride=(1, 2), padding=(1,2)),
         )  
 
         self.encode = nn.Sequential(
-            *conv_block(128, 256, 5, stride=2, padding=1),
-            # nn.MaxPool2d((2, 2), stride=2),
+            *conv_block(128, 64, (3, 5), stride=(1, 2), padding=(1,2)),
+            # *conv_block(64, 32, (3, 5), stride=(1, 2), padding=(1,2)),
         )
-        print("spect_shape: ", spect_shape)
         # print("256*spect_shape[0]//8*spect_shape[1]//8 = ", 256*spect_shape[0]//8*spect_shape[1]//8)
 
-        self.fc = nn.Sequential(nn.Linear(256*(spect_shape[0]//8)*(spect_shape[1]//8), 1024, bias=False),
+        # self.rnn = RecurrentBlock(256, 1024, num_layers=2, dropout_ratio=0.3)
+
+        self.fc = nn.Sequential(nn.Linear(64*spect_shape[0]*spect_shape[1]//8, 1024, bias=False),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(p=0.3)
@@ -88,28 +103,42 @@ class Encoder(nn.Module):
         # x_aud = x[:,0:2,:,:]
         # x_sei = x[:,2:4,:,:]
 
-        x_aud = x[:,0:1,:]
-        x_sei = x[:,1:2,:]
+        # x = torch.permute(x, (0, 2, 1, 3)) # [batch_size, time, feature, freq]
+
+        # x_aud = x[:,0:6,:,:]# [batch_size, 6, 7, 256]
+        # x_sei = x[:,6:10,:,:] # [batch_size, 4, 7, 256]
+
+        x_aud = x[:,0:1,:,:]
+        x_sei = x[:,1:2,:,:]
+        # x_aud = x[:,0:1,:]
+        # x_sei = x[:,1:2,:]
 
         # print("x_sei_real.shape: ", x_sei_real.shape)
-        # x_aud = torch.spose(x_aud, 1, 2)
+        # x_aud = torch.transpose(x_aud, 1, 2)
         # x_sei = torch.transpose(x_sei, 1, 2)
-        x_aud = self.aud_encode(x_aud)
-        x_sei = self.sei_encode(x_sei)
+        # print("x_aud.shape: ", x_aud.shape)
 
-        # print("after mod encode: ", x_aud.shape)
+        x_aud = self.aud_encode(x_aud)
+        # print("after encode, x_aud: ", x_aud.shape)
+        x_sei = self.sei_encode(x_sei)
+        # print("after encode, x_sei: ", x_sei.shape)
         
+        # x = torch.mean([x_aud, x_sei], dim=1)
+
         # x_aud = torch.unsqueeze(self.aud_encode(x_aud), axis=1)
         # x_sei = torch.unsqueeze(self.sei_encode(x_sei), axis=1)
 
         x = torch.cat((x_aud, x_sei), axis=1)
         # print("after concat, x.shape: ", x.shape)
-        x = self.encode(x)
+        x = self.encode(x) 
+
         x = x.view(x.shape[0], -1) # flatten
         x = self.fc(x)
-
+        # x = self.rnn(x)
+        # print("after fc: ", x.shape)
         mean = self.calc_mean(torch.cat((x, y), dim=1))
         logvar = self.calc_logvar(torch.cat((x, y), dim=1))
+        # print("mean: ", mean.shape)
 
         return mean, logvar
 
@@ -119,7 +148,7 @@ class Decoder(nn.Module):
         
         self.spect_shape = spect_shape
 
-        def conv_trans_block(in_channels, out_channels, kernel_size, stride=2, dilation=1, padding=2, output_padding=1, activation=True, normalize=True):
+        def conv_trans_block(in_channels, out_channels, kernel_size, stride=(1, 2), dilation=1, padding=(1,2), output_padding=(0,1), activation=True, normalize=True):
             layers = [nn.ConvTranspose2d(in_channels, out_channels, kernel_size, 
                 stride=stride, dilation=dilation, padding=padding, output_padding=output_padding, bias=not normalize)]
             if normalize:
@@ -128,10 +157,16 @@ class Decoder(nn.Module):
                 layers.append(nn.ReLU())
             return layers
        
-        self.fc = nn.Sequential(MLP([ncond+nhid, 256*(spect_shape[0]//8)*(spect_shape[1]//8)]))
+        self.fc = nn.Sequential(MLP([ncond+nhid, 64*spect_shape[0]*spect_shape[1]//8]))
         
         self.deconv = nn.Sequential(
-            *conv_trans_block(256, 256, 5),
+            *conv_trans_block(64, 128, (3, 5)),
+            nn.Conv2d(128, 128, 3, padding="same"),
+            # nn.Conv2d(128, 128, 3, padding="same"),
+            # nn.Conv2d(128, 128, 3, padding="same"),
+
+            # *conv_trans_block(128, 128, (3, 5)),
+
             # *conv_trans_block(256, 128, 5),
             # *conv_trans_block(128, 32, 5, padding=1, output_padding=0, activation=False),
             # nn.Conv2d(32, 4, 5, padding="same"),
@@ -139,33 +174,36 @@ class Decoder(nn.Module):
         )
         
         self.aud_deconv = nn.Sequential(
-            *conv_trans_block(128, 64, 5),
-            *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
-            nn.Conv2d(32, 1, 5, padding="same"),        
+            *conv_trans_block(64, 32, (3, 5)),
+            *conv_trans_block(32, 1, (3, 5)),
+            nn.ReLU(),
         )
 
         self.sei_deconv = nn.Sequential(
-            *conv_trans_block(128, 64, 5),
-            *conv_trans_block(64, 32, 5, padding=1, output_padding=0, activation=False),
-            nn.Conv2d(32, 1, 5, padding="same"),    
+            *conv_trans_block(64, 32, (3, 5)),
+            *conv_trans_block(32, 1, (3, 5)),
+            nn.ReLU(),
+            # nn.Conv2d(4, 1, 5, padding="same"),    
         )
 
     def forward(self, z, y):
         # print("z.shape: ", z.shape)
         # print("y.shape: ", y.shape)
         # print("torch.cat((z, y), dim=1): ", torch.cat((z, y), dim=1).shape)
-
-        z = self.fc(torch.cat((z, y), dim=1)).view(-1, 256, self.spect_shape[0]//8, self.spect_shape[1]//8)
+        
+        z = self.fc(torch.cat((z, y), dim=1)).view(-1, 64, self.spect_shape[0], self.spect_shape[1]//8)
+        
         # print("after linear decoding, z.shape: ", z.shape)
         z = self.deconv(z)
         # print("after deconv: ", z.shape)
-        (z_aud, z_sei) = torch.split(z, [128, 128], dim=1)
+        (z_aud, z_sei) = torch.split(z, [64, 64], dim=1)
         # print("z_aud.shape: ", z_aud.shape)
         z_aud = self.aud_deconv(z_aud)
         z_sei = self.sei_deconv(z_sei)
         # print("after aud_deconv, z_aud.shape: ", z_aud.shape)
         res = torch.cat((z_aud, z_sei), axis=1)
-        # exit()
+        # print("res: ", res.shape)
+
         # print("after tranpose conv, res.shape: ", res.shape)
         return res
 
@@ -241,6 +279,9 @@ def loss_2d(X, X_hat, mean, logvar):
         # x_hat = (X_hat[:,i,:,:] - torch.mean(X_hat[:,i,:,:])) / torch.std(X_hat[:,i,:,:]) 
         # reconstruction_loss += torch.mean(torch.square(x - x_hat))
         # reconstruction_loss.append(torch.mean(torch.square(x - x_hat)))
+    
+    # print("X.shape: ", X.shape)
+    # print("X_hat.shape: ", X_hat.shape)
     reconstruction_loss = torch.mean(torch.square(X - X_hat))
 
     KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean**2)

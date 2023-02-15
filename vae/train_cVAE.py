@@ -32,8 +32,10 @@ import torchvision
 from model_1d import loss_1d, cVAE_1d
 from model_2d import loss_2d, cVAE_2d
 sys.path.append("../")
-sys.path.append("../acid_dataset_utils")
-from acid_dataset_utils.data_loader import *
+sys.path.append("../acids_dataset_utils")
+sys.path.append("input_utils")
+from input_utils.acids_dataloader import *
+from input_utils.preprocess import *
 from vae_utils import *
 from visualize_utils import *
 
@@ -45,39 +47,37 @@ if not os.path.exists(f"./visualization/{opt.run}"):
 cvae_config = load_yaml("./cVAE_config.yaml")
 
 ############## loading data ###################
-if opt.model == "cVAE_1d":
-    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="fft")
-elif opt.model == "cVAE_2d":
-    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
-# train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft")
-print("train_X.shape: ", train_X.shape)
-print("train_Y.shape: ", train_Y.shape)
-############## masking data ###################
-train_X, train_Y = mask_training_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-test_X, test_Y = mask_training_data(test_X, test_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-print("masked_train_X.shape: ", train_X.shape)
-print("masked_train_Y.shape: ", train_Y.shape)
+# if opt.model == "cVAE_1d":
+#     train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="fft")
+# elif opt.model == "cVAE_2d":
+#     train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
+# # train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft")
+# print("train_X.shape: ", train_X.shape)
+# print("train_Y.shape: ", train_Y.shape)
+# ############## masking data ###################
+# train_X, train_Y = mask_training_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+# test_X, test_Y = mask_training_data(test_X, test_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+# print("masked_train_X.shape: ", train_X.shape)
+# print("masked_train_Y.shape: ", train_Y.shape)
 
 
-vehicle_type_set = set()
-for y in train_Y:
-    # if np.argmax(Ys[:9]) in masked_vehicle_types and np.argmax(Ys[10:13]) in masked_terrain_types:
-    vehicle_type_set.add(f"{np.argmax(y[:9])} - {np.argmax(y[10:13])}")
+train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/train_index.txt")
+test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt")
 
 ############## loading models ###################
 
 if opt.model == "cVAE_1d":
     net = cVAE_1d(1024, 14, nhid = 128, ncond = 32)
 elif opt.model == "cVAE_2d":
-    _, _, Zxx = signal.stft(np.random.rand(opt.signal_len), nperseg=128, noverlap=64)
-    net = cVAE_2d(Zxx.shape, 14, nhid = 128, ncond = 16)
+    net = cVAE_2d((7, 128), 15, nhid = 128, ncond = 32)
 
 net.to(device)
 print(net)
 save_name = f"cVAE_{opt.run}.pt"
 
-lr = 0.01
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.0001)
+lr = 0.1
+# optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.0001)
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.01)
 
 def adjust_lr(optimizer, decay_rate=0.95):
     for param_group in optimizer.param_groups:
@@ -85,16 +85,6 @@ def adjust_lr(optimizer, decay_rate=0.95):
 
 if opt.mode == "train":
     retrain = False
-    # retrain = True
-    # if os.path.exists(save_name):
-        # print("Model parameters have already been trained before. Retrain ? (y/n)")
-        # ans = input()
-        # if not (ans == 'y'):
-        #     checkpoint = torch.load(save_name, map_location = device)
-        #     net.load_state_dict(checkpoint["net"])
-        #     optimizer.load_state_dict(checkpoint["optimizer"])
-        #     for g in optimizer.param_groups:
-        #         g['lr'] = lr
 
 ############### training #########################
 max_epochs = 1000
@@ -104,60 +94,42 @@ net = net.to(device)
 print("training on ", device)
 for epoch in range(max_epochs):
 
-    batch_samples = []
-    batch_labels = []
+    Xs_means = []
+    Xs_hat_means = []
+    means_means = []
+    logvar_means = []
 
-    # Randomly shuffle the data
-    temp = list(zip(train_X, train_Y))
-    np.random.shuffle(temp)
-    train_X, train_Y = zip(*temp)
-    train_X, train_Y = list(train_X), list(train_Y)
+    accumulate_train_loss  = 0
+    accumulate_rec_loss = 0 
+    accumulate_kl_loss = 0
 
-    train_loss, n, start = 0.0, 0, time.time()
-    
-    accumulate_rec_loss = 0.0
-    accumulate_kl_loss = 0.0
+    start_time = time.time()
 
-    X_means = []
-    X_hat_means = []
+    for n, (Xs, Ys) in enumerate(train_dataloader):
+        Xs, Ys = preprocess(Xs, Ys)
+        Xs = Xs.to(device)
+        Ys = Ys.to(device)
 
-    # for X, y in tqdm.tqdm(train_iter, ncols = 50):
-    for n, (X, y) in enumerate(zip(train_X, train_Y)):
-        # for X, y in zip(train_X, train_Y):
-        batch_samples.append(X)
-        batch_labels.append(y)
-        if len(batch_samples) < opt.batch_size:
-            continue
-
-        batch_samples = torch.Tensor(batch_samples).to(device)
-        batch_labels = torch.Tensor(batch_labels).to(device)
-        X_hat, mean, logvar = net(batch_samples, batch_labels)
+        Xs_hat, mean, logvar = net(Xs, Ys)
+        
+        Xs_means.append(torch.mean(Xs, axis=(0,2,3)).detach().cpu().numpy())
+        Xs_hat_means.append(torch.mean(Xs_hat, axis=(0,2,3)).detach().cpu().numpy())
+        means_means.append(torch.mean(mean, axis=0).detach().cpu().numpy())
+        logvar_means.append(torch.mean(logvar, axis=0).detach().cpu().numpy())
 
         if epoch > 0 and epoch % 20 == 0:
-        # if epoch % 10 == 0:
-            if np.random.random() < 0.1:
-                # Plot the first sample for each batch
+            if n % 10 == 0:
                 if opt.model == "cVAE_1d":
-                    visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
-                        batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
+                    visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(Xs.detach().cpu().numpy()[0], 0), 
+                        Ys.detach().cpu().numpy(), np.expand_dims(Xs_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
                 elif opt.model == "cVAE_2d":
-                    visualize_reconstruct_spect(n-opt.batch_size+1, np.expand_dims(batch_samples.detach().cpu().numpy()[0], 0), 
-                        batch_labels.detach().cpu().numpy(), np.expand_dims(X_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
-        # print("batch_samples: ", batch_samples.shape)
-        # print("X_hat: ", X_hat.shape)
-        # exit()
-
-        X_means.append(np.mean(batch_samples.detach().cpu().numpy(), axis = (2, 3)))
-        X_hat_means.append(np.mean(X_hat.detach().cpu().numpy(), axis = (2, 3)))
-
-        # print("X shape: ", batch_samples.shape, ", X_mean: ", np.mean(batch_samples.detach().cpu().numpy(), axis = (2, 3)))
-        # print("X_hat shape: ", X_hat.shape, ", X_hat_mean: ", np.mean(X_hat.detach().cpu().numpy(), axis = (2, 3)))
-        # exit()
+                    visualize_reconstruct_spect(n, np.expand_dims(Xs.detach().cpu().numpy()[0], 0), 
+                        Ys.detach().cpu().numpy(), np.expand_dims(Xs_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
 
         if opt.model == "cVAE_1d":
-            reconstruction_loss, KL_divergence = loss_1d(batch_samples, X_hat, mean, logvar)
+            reconstruction_loss, KL_divergence = loss_1d(Xs, Xs_hat, mean, logvar)
         elif opt.model == "cVAE_2d":
-            reconstruction_loss, KL_divergence = loss_2d(batch_samples, X_hat, mean, logvar)
+            reconstruction_loss, KL_divergence = loss_2d(Xs, Xs_hat, mean, logvar)
 
         accumulate_rec_loss += reconstruction_loss.cpu().item()
         accumulate_kl_loss += KL_divergence.cpu().item()
@@ -167,24 +139,20 @@ for epoch in range(max_epochs):
         l.backward()
         optimizer.step()
 
-        train_loss += l.cpu().item()
-        n += X.shape[0]
+        accumulate_train_loss += l.cpu().item()
         
         batch_samples = []
         batch_labels = []
 
-    train_loss /= n
-    print('epoch %d, train loss %.4f , rec loss %.4f, kl loss %.4f, weighted kl loss %.4f, time %.1f sec'
-          % (epoch, train_loss, accumulate_rec_loss/n, accumulate_kl_loss/n,
-          accumulate_kl_loss/n * opt.beta, time.time() - start))
+    print('epoch %d, mean %.4f, logvar %.4f, train loss %.4f , rec loss %.4f, kl loss %.4f, weighted kl loss %.4f, time %.1f sec'
+          % (epoch, np.mean(means_means), np.mean(logvar_means), accumulate_train_loss/n/opt.batch_size, accumulate_rec_loss/n/opt.batch_size, accumulate_kl_loss/n/opt.batch_size,
+          accumulate_kl_loss/n/opt.batch_size * opt.beta, time.time() - start_time))
     
-    print("X_means: ", np.mean(X_means, axis = (0, 1)), ", X_hat_means: ", np.mean(X_hat_means, axis = (0, 1)))
-    # print("X_means.shape: ", np.array(X_means).shape)
-    # exit()
+    print("Xs_means: ", np.mean(Xs_means, axis = 0), ", Xs_hat_means: ", np.mean(Xs_hat_means, axis = 0))
 
     adjust_lr(optimizer)
     
-    if (early_stop(train_loss, net, optimizer)):
+    if (early_stop(accumulate_train_loss, net, optimizer)):
         break
 
 checkpoint = torch.load(early_stop.save_name)

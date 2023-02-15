@@ -76,9 +76,22 @@ def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, o
     for i, (signal, gen, label) in enumerate(zip(batch_signal, batch_gen, batch_label)):
         # print("ori means: ", np.mean(signal, axis=(1,2)))
         # print("gen means: ", np.mean(gen, axis=(1,2)))
+        # print("signal: ", signal.shape)
+        # print("gen: ", gen.shape)
+        # print("label: ", label.shape)
+
+        signal = np.transpose(signal, (0, 2, 1))
+        gen = np.transpose(gen, (0, 2, 1))
 
         f_len = signal.shape[1]
         t_len = signal.shape[2]
+        # 0    1     2    3    4    5    6    7    8    9 
+        # a1r, a2r, a3r, s1r, s2r, a1i, a2i, a3i, s1i, s2i
+        # ori_audio_abs = np.sqrt( np.square(signal[0]) + np.square(signal[5]) )
+        # ori_seismic_abs = np.sqrt( np.square(signal[3]) + np.square(signal[8]) )
+
+        # gen_audio_abs = np.sqrt( np.square(gen[0]) + np.square(gen[5]) )
+        # gen_seismic_abs = np.sqrt( np.square(gen[3]) + np.square(gen[8]) )
 
         ori_audio_abs = signal[0]
         ori_seismic_abs = signal[1]

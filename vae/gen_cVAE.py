@@ -9,6 +9,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
+parser.add_argument("--checkpoint", type=str, default="test", help="name of the checkpoint")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
 parser.add_argument("--gen_n", type=int, default=100, help="Generate n samples")
 parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
@@ -66,12 +67,21 @@ if opt.model == "cVAE_1d":
 elif opt.model == "cVAE_2d":
     train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
 
-# Xs = np.concatenate([train_X, test_X], axis=0)
-# Ys = np.concatenate([train_Y, test_Y], axis=0)
-# Xs = train_X
-# Ys = train_Y
-# print("Ys.shape: ", Ys.shape)
+# Save the original data as pt files
+# def save_pt_and_indexes(X, Y, pt_output_path, index_output_path, file_prefix):
+#     file_paths = []
+#     for n, (x, y) in enumerate(zip(X, Y)):
+#         path = os.path.join(pt_output_path, f"{file_prefix}_{n}.pt")
+#         save_as_pt(x, y, path)
+#         file_paths.append(path)
+    
+#     with open(os.path.join(index_output_path, f"{file_prefix}_index.txt"), "w") as f:
+#         for file_path in file_paths:
+#             f.write(file_path + "\n")
 
+# save_pt_and_indexes(train_X, train_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "train")
+# save_pt_and_indexes(test_X, test_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "test")
+# save_pt_and_indexes(test_X, test_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "val")
 
 # Masked training data for cVAE. Will be used as the testing set in the classifier.
 masked_train_X, masked_train_Y = get_masked_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
@@ -105,7 +115,7 @@ elif opt.model == "cVAE_2d":
 net.to(device)
 net.eval()
 print(net)
-save_name = f"cVAE_{opt.run}.pt"
+save_name = f"cVAE_{opt.checkpoint}.pt"
 
 # def one_hot_encode(n, N):
 #     enc = np.zeros(N)
@@ -135,8 +145,8 @@ for vehicle_type in cvae_config["masked_vehicle_types"]:
                             visualize_single_spect(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal, label, f"./visualization/{opt.run}_gen")
 
                     output_path = os.path.join(OUTPUT_PT_FILE_PATH, f"gen_{counter}.pt")
-                    train_file_paths.append(output_path)
-                    save_as_pt(gen_signal, label, output_path)
+                    # train_file_paths.append(output_path)
+                    # save_as_pt(gen_signal, label, output_path)
                     counter += 1
 
 for n, (x, y) in enumerate(zip(train_X, train_Y)):
