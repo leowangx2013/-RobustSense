@@ -53,7 +53,7 @@ def one_hot_embed(ns, N):
     return emb
 
 def reformat_labels(labels):
-    vehicle_type = labels['vehicle_type'] # 0 ~ 10, 10 is no vehicle
+    vehicle_type = labels['vehicle_type'] # 0 ~ 10, 0 is no vehicle
     vehicle_type_emb = one_hot_embed(vehicle_type, 10)
     terrain = labels['terrain'] 
     terrain_emb = one_hot_embed(terrain, 3)

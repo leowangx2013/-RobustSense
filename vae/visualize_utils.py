@@ -180,7 +180,9 @@ def visualize_reconstruct_spect(n_start, batch_signal, batch_label, batch_gen, o
 
 
 # n_start, spect, output_path
-def visualize_single_spect(name, spect, label, output_path):
+def visualize_single_spect(name, spect, output_path):
+
+    spect = np.transpose(spect, (0, 2, 1))
     f_len = spect.shape[1]
     t_len = spect.shape[2]
 
@@ -228,11 +230,10 @@ def visualize_single_spect(name, spect, label, output_path):
     ax6.plot(seismic_time_seq)
     ax6.set_title('Seismic Time Seq')
 
-    fig.suptitle("Vehicle Type: {}, Speed: {}, Terrain: {}, Distance: {}".format(
-        np.argmax(label[:9]), label[9], np.argmax(label[10:13]), label[13]))
+    fig.suptitle(name)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_path, name))
+    plt.savefig(os.path.join(output_path, name+".png"))
     plt.clf()
     plt.cla()
     plt.close()

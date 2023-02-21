@@ -26,9 +26,12 @@ import torch
 import torch.nn.functional as F
 import torchvision
 sys.path.append("../")
-sys.path.append("../acid_dataset_utils")
-from acid_dataset_utils.data_loader import *
+sys.path.append("../acids_dataset_utils")
+sys.path.append("input_utils")
+from acids_dataset_utils.data_loader import *
 from vae_utils import *
+from input_utils.acids_dataloader import *
+from input_utils.preprocess import *
 from visualize_utils import *
 from model_1d import loss_1d, cVAE_1d
 from model_2d import loss_2d, cVAE_2d
@@ -39,11 +42,11 @@ else:
     for f in os.listdir(f"./visualization/{opt.run}_gen"):
         os.remove(os.path.join(f"./visualization/{opt.run}_gen", f))
 
-if not os.path.exists(f"./visualization/{opt.run}_masked"):
-    Path(f"./visualization/{opt.run}_masked").mkdir(parents=True, exist_ok=True)
+if not os.path.exists(f"./visualization/{opt.run}_filtered"):
+    Path(f"./visualization/{opt.run}_filtered").mkdir(parents=True, exist_ok=True)
 else:
-    for f in os.listdir(f"./visualization/{opt.run}_masked"):
-        os.remove(os.path.join(f"./visualization/{opt.run}_masked", f))
+    for f in os.listdir(f"./visualization/{opt.run}_filtered"):
+        os.remove(os.path.join(f"./visualization/{opt.run}_filtered", f))
 
 cvae_config = load_yaml("./cVAE_config.yaml")
 
@@ -61,56 +64,53 @@ else:
     for f in os.listdir(OUTPUT_PT_INDEX_PATH):
         os.remove(os.path.join(OUTPUT_PT_INDEX_PATH, f))
 
-############## loading data ###################
-if opt.model == "cVAE_1d":
-    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="fft")
-elif opt.model == "cVAE_2d":
-    train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
+train_file_paths = []
+test_file_paths = []
 
-# Save the original data as pt files
-# def save_pt_and_indexes(X, Y, pt_output_path, index_output_path, file_prefix):
-#     file_paths = []
-#     for n, (x, y) in enumerate(zip(X, Y)):
-#         path = os.path.join(pt_output_path, f"{file_prefix}_{n}.pt")
-#         save_as_pt(x, y, path)
-#         file_paths.append(path)
+train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/train_index.txt", is_train=False)
+test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt", is_train=False)
+
+train_counter = 0
+test_counter = 0
+speed_set = set()
+distance_set = set()
+for n, (Xs, Ys) in enumerate(train_dataloader):
+    Xs, Ys = preprocess(Xs, Ys)
     
-#     with open(os.path.join(index_output_path, f"{file_prefix}_index.txt"), "w") as f:
-#         for file_path in file_paths:
-#             f.write(file_path + "\n")
+    unfiltered_Xs, unfiltered_Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+    
+    for x, y in zip(unfiltered_Xs, unfiltered_Ys):
+        vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
+        speed_set.add(speed.detach().item())
+        distance_set.add(distance.detach().item())
+        save_as_pt(x, y, os.path.join(OUTPUT_PT_FILE_PATH, f"train_{train_counter}.pt"))
+        train_file_paths.append(os.path.join(OUTPUT_PT_FILE_PATH, f"train_{train_counter}.pt"))
+        train_counter += 1
 
-# save_pt_and_indexes(train_X, train_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "train")
-# save_pt_and_indexes(test_X, test_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "test")
-# save_pt_and_indexes(test_X, test_Y, OUTPUT_PT_FILE_PATH, OUTPUT_PT_INDEX_PATH, "val")
+    filtered_Xs, filtered_Ys = get_filtered_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"]) # Use as the testing data for the classifier
+    for x, y in zip(filtered_Xs, filtered_Ys):
+        if opt.visualize:
+            vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
+            visualize_single_spect(f"{test_counter}-v{vehicle_type}_s{int(speed)}_t{terrain_type}_d{int(distance)}", x.detach().numpy(), f"./visualization/{opt.run}_filtered")
+        
+        vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
+        speed_set.add(speed.detach().item())
+        distance_set.add(distance.detach().item())
+        
+        save_as_pt(x, y, os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
+        test_file_paths.append(os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
+        test_counter += 1
 
-# Masked training data for cVAE. Will be used as the testing set in the classifier.
-masked_train_X, masked_train_Y = get_masked_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-# Training data for cVAE. Add up the generated data, together it becomes the training set for the classifier.
-train_X, train_Y = mask_training_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-
-# print("masked_train_X: ", len(masked_train_X))
-# print("train_x: ", len(train_X))
-
-# print("masked_train_X.shape: ", train_X.shape)
-# print("masked_train_Y.shape: ", train_Y.shape)
-
-if opt.gen_masked:
-    for n, (x, y) in enumerate(zip(masked_train_X, masked_train_Y)):
-        vehicle_type = np.argmax(y[:9])
-        speed_type = y[9]
-        terrain_type = np.argmax(y[10:13])
-        distance_type = y[13]
-        visualize_single_spect(f"{vehicle_type}_{int(speed_type)}_{terrain_type}_{int(distance_type)}_{n}.png", x, y, f"./visualization/{opt.run}_masked")
+print("speeds: ", speed_set)
+print("distances: ", distance_set)
 
 ############## loading models ###################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if opt.model == "cVAE_1d":
-
     net = cVAE_1d(512, 14, nhid = 8, ncond = 64)
 elif opt.model == "cVAE_2d":
-    _, _, Zxx = signal.stft(np.random.rand(opt.signal_len), nperseg=128, noverlap=64)
-    net = cVAE_2d(Zxx.shape, 14, nhid = 128, ncond = 16)
+    net = cVAE_2d((7, 128), 15, nhid = 128, ncond = 32)
 
 net.to(device)
 net.eval()
@@ -128,7 +128,6 @@ if os.path.exists(save_name):
 else:
     print("No checkpoint found.")
 
-train_file_paths = []
 counter = 0
 for vehicle_type in cvae_config["masked_vehicle_types"]:
     for terrain_type in cvae_config["masked_terrain_types"]:
@@ -136,30 +135,22 @@ for vehicle_type in cvae_config["masked_vehicle_types"]:
             for distance_type in cvae_config["distance_types"]:
                 for n in range(opt.gen_n):
                     label = attributes_to_label(vehicle_type, speed_type, terrain_type, distance_type)
-                    gen_signal = net.generate(label)
-                    gen_signal = gen_signal.cpu().detach().numpy()[0] # Only one item in a batch
+
+                    gen_signal = net.generate(label)[0].cpu().detach()
+                    gen_signal_np = gen_signal.numpy() # Only one item in a batch
                     if opt.visualize:
                         if opt.model == "cVAE_1d":
-                            visualize_single_signal(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal, label, f"./visualization/{opt.run}_gen")
+                            visualize_single_signal(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal_np, label, f"./visualization/{opt.run}_gen")
                         elif opt.model == "cVAE_2d":
-                            visualize_single_spect(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal, label, f"./visualization/{opt.run}_gen")
+                            visualize_single_spect(f"{vehicle_type}_{speed_type}_{terrain_type}_{distance_type}_{n}.png", gen_signal_np, label, f"./visualization/{opt.run}_gen")
 
                     output_path = os.path.join(OUTPUT_PT_FILE_PATH, f"gen_{counter}.pt")
-                    # train_file_paths.append(output_path)
-                    # save_as_pt(gen_signal, label, output_path)
+                    train_file_paths.append(output_path)
+                    save_as_pt(gen_signal, torch.from_numpy(np.array(label)), output_path)
                     counter += 1
 
-for n, (x, y) in enumerate(zip(train_X, train_Y)):
-    output_path = os.path.join(OUTPUT_PT_FILE_PATH, f"train_{n}.pt")
-    save_as_pt(x, y, output_path)
-    train_file_paths.append(output_path)
-
-test_file_paths = []
-for n, (x, y) in enumerate(zip(masked_train_X, masked_train_Y)):
-    output_path = os.path.join(OUTPUT_PT_FILE_PATH, f"test_{n}.pt")
-    save_as_pt(x, y, output_path)
-    test_file_paths.append(output_path)
-
+print("train_file_paths: ", len(train_file_paths))
+print("test_file_paths: ", len(test_file_paths))
 
 with open(os.path.join(OUTPUT_PT_INDEX_PATH, "train_index.txt"), "w") as f:
     for file_path in train_file_paths:

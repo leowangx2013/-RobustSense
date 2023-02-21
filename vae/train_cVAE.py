@@ -107,6 +107,9 @@ for epoch in range(max_epochs):
 
     for n, (Xs, Ys) in enumerate(train_dataloader):
         Xs, Ys = preprocess(Xs, Ys)
+        # print("Ys len: ", len(Ys), Ys)
+        Xs, Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+        # print("filtered Ys len: ", len(Ys), Ys)
         Xs = Xs.to(device)
         Ys = Ys.to(device)
 

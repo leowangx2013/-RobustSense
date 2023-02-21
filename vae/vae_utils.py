@@ -113,47 +113,81 @@ def get_masked_data(Xs, Ys, masked_vehicle_types, masked_terrain_types):
     
     return np.array(masked_Xs), np.array(masked_Ys)
 
+def filter_train_data(Xs, Ys, masked_vehicle_types, masked_terrain_types):
+    unfiltered_indexes = []
+    for n, (x, y) in enumerate(zip(Xs, Ys)):
+        vehicle_type = torch.argmax(y[:10])
+        terrain_type = torch.argmax(y[11:14])
+        if vehicle_type not in masked_vehicle_types or terrain_type not in masked_terrain_types:
+            unfiltered_indexes.append(n)
+
+    return Xs[unfiltered_indexes], Ys[unfiltered_indexes]
+
+def get_filtered_data(Xs, Ys, masked_vehicle_types, masked_terrain_types):
+    filtered_indexes = []
+    for n, (x, y) in enumerate(zip(Xs, Ys)):
+        vehicle_type = torch.argmax(y[:10])
+        terrain_type = torch.argmax(y[11:14])
+        if vehicle_type in masked_vehicle_types and terrain_type in masked_terrain_types:
+            filtered_indexes.append(n)
+
+    return Xs[filtered_indexes], Ys[filtered_indexes]
+
 def one_hot_encode(n, N):
     enc = np.zeros(N)
     enc[n] = 1
     return enc.tolist()
 
 def label_to_attributes(label):
-    vehicle_type = np.argmax(label[:9])
-    speed_type = label[9]
-    terrain_type = np.argmax(label[10:13])
-    distance_type = label[13]
-    return vehicle_type, speed_type, terrain_type, distance_type
+    vehicle_type = torch.argmax(label[:10])
+    speed = label[10]
+    terrain_type = torch.argmax(label[11:14])
+    distance = label[14]
+    return vehicle_type, speed, terrain_type, distance
 
 def attributes_to_label(vehicle_type, speed_type, terrain_type, distance_type):
-    label = one_hot_encode(vehicle_type, 9) + [float(speed_type)] + one_hot_encode(terrain_type, 3) + [float(distance_type)]
+    label = one_hot_encode(vehicle_type, 10) + [float(speed_type)] + one_hot_encode(terrain_type, 3) + [float(distance_type)]
     return label
 
 def save_as_pt(x, y, output_path):
-    x = np.transpose(x, (0, 2, 1))
-    vehicle_type, speed_type, terrain_type, distance_type = label_to_attributes(y)
-
-    speed_enc = np.zeros(3)
-    if speed_type <= 10:
-        speed_enc[0] = 1
-    elif speed_type <= 30:
-        speed_enc[1] = 1
-    else:
-        speed_enc[2] = 1
-
-    distance_enc = np.zeros(2)
-    if distance_type <= 25:
-        distance_enc[0] = 1
-    else:
-        distance_enc[1] = 1
-
-    sample = {"data": 
-    {"shake": 
-        {"audio": np.expand_dims(x[0], 0), 
-        "seismic": np.expand_dims(x[1], 0)}}, 
-        "label": {"vehicle_type": np.array(one_hot_encode(vehicle_type, 9)), "speed": speed_enc, 
-            "terrain_type": np.array(one_hot_encode(terrain_type, 3)), "distance": distance_enc}}
+    vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
+    sample = {
+        "label": {
+            "vehicle_type": vehicle_type.long(),
+            "terrain": terrain_type.long(),
+            "speed": speed.long(),
+            "distance": distance.long(),
+        },
+        "flag": {},
+        "data": {"shake": {"audio": x[0:1], "seismic": x[1:2]}},
+    }
     torch.save(sample, output_path)
+
+# def save_as_pt(x, y, output_path):
+#     x = np.transpose(x, (0, 2, 1))
+#     vehicle_type, speed_type, terrain_type, distance_type = label_to_attributes(y)
+
+#     speed_enc = np.zeros(3)
+#     if speed_type <= 10:
+#         speed_enc[0] = 1
+#     elif speed_type <= 30:
+#         speed_enc[1] = 1
+#     else:
+#         speed_enc[2] = 1
+
+#     distance_enc = np.zeros(2)
+#     if distance_type <= 25:
+#         distance_enc[0] = 1
+#     else:
+#         distance_enc[1] = 1
+
+#     sample = {"data": 
+#     {"shake": 
+#         {"audio": np.expand_dims(x[0], 0), 
+#         "seismic": np.expand_dims(x[1], 0)}}, 
+#         "label": {"vehicle_type": np.array(one_hot_encode(vehicle_type, 9)), "speed": speed_enc, 
+#             "terrain_type": np.array(one_hot_encode(terrain_type, 3)), "distance": distance_enc}}
+#     torch.save(sample, output_path)
 
 def stft_to_time_seq(array_real, array_imag, fs=1024):
     _, time_seq = signal.istft(array_real+1j*array_imag, fs=fs)
