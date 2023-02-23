@@ -11,7 +11,7 @@ parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs o
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--checkpoint", type=str, default="test", help="name of the checkpoint")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
-parser.add_argument("--gen_n", type=int, default=100, help="Generate n samples")
+parser.add_argument("--gen_n", type=int, default=0, help="Generate n samples")
 parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
 parser.add_argument("--gpu", type=str, default="0", help="Visible GPU")
 parser.add_argument("--signal_len", type=int, default=1024, help="length of the time series data")
@@ -36,24 +36,15 @@ from visualize_utils import *
 from model_1d import loss_1d, cVAE_1d
 from model_2d import loss_2d, cVAE_2d
 
-if not os.path.exists(f"./visualization/{opt.run}_gen"):
-    Path(f"./visualization/{opt.run}_gen").mkdir(parents=True, exist_ok=True)
-else:
-    for f in os.listdir(f"./visualization/{opt.run}_gen"):
-        os.remove(os.path.join(f"./visualization/{opt.run}_gen", f))
+VEHICLE_TYPES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+TERRAIN_TYPES = [0, 1, 2]
+SPEED_TYPES = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -1.0]
+DISTANCE_TYPES = [0.0, 1.0, 2.0, 3.0, 4.0, -1.0]
 
-if not os.path.exists(f"./visualization/{opt.run}_filtered"):
-    Path(f"./visualization/{opt.run}_filtered").mkdir(parents=True, exist_ok=True)
-else:
-    for f in os.listdir(f"./visualization/{opt.run}_filtered"):
-        os.remove(os.path.join(f"./visualization/{opt.run}_filtered", f))
-
-cvae_config = load_yaml("./cVAE_config.yaml")
-
-TRAIN_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{(opt.run).split('_')[0]}"
+ORIGINAL_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/original"
 train_generated = True
-if not os.path.exists(TRAIN_PT_FILE_PATH):
-    Path(TRAIN_PT_FILE_PATH).mkdir(parents=True, exist_ok=True)
+if not os.path.exists(ORIGINAL_PT_FILE_PATH):
+    Path(ORIGINAL_PT_FILE_PATH).mkdir(parents=True, exist_ok=True)
     train_generated = False
 
 OUTPUT_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.run}"
@@ -77,38 +68,25 @@ train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_
 test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt", is_train=False)
 
 train_counter = 0
-test_counter = 0
-speed_set = set()
-distance_set = set()
 for n, (Xs, Ys) in enumerate(train_dataloader):
     Xs, Ys = preprocess(Xs, Ys)
-    
-    if not train_generated:
-        unfiltered_Xs, unfiltered_Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-        for x, y in zip(unfiltered_Xs, unfiltered_Ys):
-            vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-            speed_set.add(speed.detach().item())
-            distance_set.add(distance.detach().item())
-            save_as_pt(x, y, os.path.join(TRAIN_PT_FILE_PATH, f"train_{train_counter}.pt"))
-            train_file_paths.append(os.path.join(TRAIN_PT_FILE_PATH, f"train_{train_counter}.pt"))
-            train_counter += 1
-
-    filtered_Xs, filtered_Ys = get_filtered_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"]) # Use as the testing data for the classifier
-    for x, y in zip(filtered_Xs, filtered_Ys):
-        if opt.visualize:
-            vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-            visualize_single_spect(f"{test_counter}-v{vehicle_type}_s{int(speed)}_t{terrain_type}_d{int(distance)}", x.detach().numpy(), f"./visualization/{opt.run}_filtered")
-        
+    for x, y in zip(Xs, Ys):
         vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-        speed_set.add(speed.detach().item())
-        distance_set.add(distance.detach().item())
-        
-        save_as_pt(x, y, os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
-        test_file_paths.append(os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
+        # if vehicle_type.detach().item() == 0:
+        #     print(f"sample {train_counter}, vehicle type is 0, speed: {speed}, terrain_type: {terrain_type}, distance: {distance}")
+        save_as_pt(x, y, os.path.join(ORIGINAL_PT_FILE_PATH, f"train_{train_counter}.pt"))
+        train_file_paths.append(os.path.join(ORIGINAL_PT_FILE_PATH, f"train_{train_counter}.pt"))
+        train_counter += 1
+
+test_counter = 0
+for n, (Xs, Ys) in enumerate(test_dataloader):
+    Xs, Ys = preprocess(Xs, Ys)
+    for x, y in zip(Xs, Ys):
+        vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
+        save_as_pt(x, y, os.path.join(ORIGINAL_PT_FILE_PATH, f"test_{test_counter}.pt"))
+        test_file_paths.append(os.path.join(ORIGINAL_PT_FILE_PATH, f"test_{test_counter}.pt"))
         test_counter += 1
 
-print("speeds: ", speed_set)
-print("distances: ", distance_set)
 
 ############## loading models ###################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -123,11 +101,6 @@ net.eval()
 print(net)
 save_name = f"cVAE_{opt.checkpoint}.pt"
 
-# def one_hot_encode(n, N):
-#     enc = np.zeros(N)
-#     enc[n] = 1
-#     return enc.tolist()
-
 if os.path.exists(save_name):
     checkpoint = torch.load(save_name, map_location = device)
     net.load_state_dict(checkpoint["net"])
@@ -135,10 +108,10 @@ else:
     print("No checkpoint found.")
 
 counter = 0
-for vehicle_type in cvae_config["masked_vehicle_types"]:
-    for terrain_type in cvae_config["masked_terrain_types"]:
-        for speed_type in cvae_config["speed_types"]:
-            for distance_type in cvae_config["distance_types"]:
+for vehicle_type in VEHICLE_TYPES:
+    for terrain_type in TERRAIN_TYPES:
+        for speed_type in SPEED_TYPES:
+            for distance_type in DISTANCE_TYPES:
                 for n in range(opt.gen_n):
                     label = attributes_to_label(vehicle_type, speed_type, terrain_type, distance_type)
 
