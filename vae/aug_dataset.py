@@ -11,7 +11,7 @@ parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs o
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--checkpoint", type=str, default="test", help="name of the checkpoint")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
-parser.add_argument("--gen_n", type=int, default=0, help="Generate n samples")
+parser.add_argument("gen_n", type=int, default=0, help="Generate n samples")
 parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
 parser.add_argument("--gpu", type=str, default="0", help="Visible GPU")
 parser.add_argument("--signal_len", type=int, default=1024, help="length of the time series data")
@@ -99,7 +99,7 @@ elif opt.model == "cVAE_2d":
 net.to(device)
 net.eval()
 print(net)
-save_name = f"cVAE_{opt.checkpoint}.pt"
+save_name = f"./weights/cVAE_{opt.checkpoint}.pt"
 
 if os.path.exists(save_name):
     checkpoint = torch.load(save_name, map_location = device)

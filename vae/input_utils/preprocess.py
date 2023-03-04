@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import time
 
 def fft_preprocess(xs):
     xs = torch.concat([xs['shake']['audio'], xs['shake']['seismic']], axis=1)
@@ -32,9 +33,8 @@ def fft_abs_preprocess(xs):
     xs = torch.concat([xs['shake']['audio'], xs['shake']['seismic']], axis=1)
     xs_fft = torch.fft.fft(xs, dim=-1)
     # print("xs_fft.shape: ", xs_fft.shape)
-    xs_fft = xs_fft[:,:,:,:128] # Throw out the duplicate spectrum
     xs_fft = torch.abs(xs_fft)
-
+    xs_fft = xs_fft[:,:,:,:128] # Throw out the duplicate spectrum
     xs_fft_audio = xs_fft[:, 0:1, :, :]
     xs_fft_seismic = xs_fft[:, 3:4, :, :]
 
@@ -62,12 +62,13 @@ def reformat_labels(labels):
 
     return torch.cat((vehicle_type_emb, speed, terrain_emb, distance), dim=1)
 
-def preprocess(batch_data, batch_label):
-    batch_label = reformat_labels(batch_label)
-    # batch_data = fft_preprocess(batch_data)
+def preprocess(batch_data, batch_label, device):
+    for loc in batch_data:
+        for mod in batch_data[loc]:
+            batch_data[loc][mod] = batch_data[loc][mod].to(device)
     batch_data = fft_abs_preprocess(batch_data)
 
-    # print("batch_label.shape: ", batch_label.shape)
-    # print("batch_data: ", batch_data.shape)
+    batch_label = reformat_labels(batch_label)
+    batch_label = batch_label.to(device)
 
     return batch_data, batch_label

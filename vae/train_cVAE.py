@@ -10,17 +10,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.001, help="adam: learning rate")
-# parser.add_argument("--n_classes", type=int, default=9, help="number of classes for dataset")
 parser.add_argument("--label_len", type=int, default=14, help="number of classes for dataset")
-# parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
 parser.add_argument("--signal_len", type=int, default=1024, help="length of the time series data")
 parser.add_argument("--channels", type=int, default=2, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=400, help="interval between image sampling")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
+parser.add_argument("--cvae_config_file", type=str, default="./cVAE_config.yaml", help="config file for cVAE")
+parser.add_argument("--weight_output_path", type=str, default="./weights", help="weight file output path")
 parser.add_argument("--gpu", type=str, default="0", help="Visible GPU")
 parser.add_argument("--mode", type=str, default="train", help="Mode: train or test")
 parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
 parser.add_argument("--beta", type=float, default=1, help="weight for KL divergence")
+parser.add_argument("--visualize", type=bool, default=False, help="whether to visualize the results")
 
 opt = parser.parse_args()
 
@@ -44,36 +45,24 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if not os.path.exists(f"./visualization/{opt.run}"):
     Path(f"./visualization/{opt.run}").mkdir(parents=True, exist_ok=True)
 
-cvae_config = load_yaml("./cVAE_config.yaml")
+cvae_config = load_yaml(opt.cvae_config_file)
+# print("opt.cvae_config_file: ", opt.cvae_config_file)
 
-############## loading data ###################
-# if opt.model == "cVAE_1d":
-#     train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="fft")
-# elif opt.model == "cVAE_2d":
-#     train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft", sample_len=opt.signal_len)
-# # train_X, train_Y, test_X, test_Y, train_sample_count, test_sample_count, train_labels, test_labels = load_data(mode="stft")
-# print("train_X.shape: ", train_X.shape)
-# print("train_Y.shape: ", train_Y.shape)
-# ############## masking data ###################
-# train_X, train_Y = mask_training_data(train_X, train_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-# test_X, test_Y = mask_training_data(test_X, test_Y, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-# print("masked_train_X.shape: ", train_X.shape)
-# print("masked_train_Y.shape: ", train_Y.shape)
-
-
-train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/train_index.txt")
-test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt")
-
+train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/train_index.txt", cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt", cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+# print("created dataloader")
 ############## loading models ###################
 
 if opt.model == "cVAE_1d":
     net = cVAE_1d(1024, 14, nhid = 128, ncond = 32)
 elif opt.model == "cVAE_2d":
     net = cVAE_2d((7, 128), 15, nhid = 128, ncond = 32)
+# print("create model")
 
 net.to(device)
-print(net)
-save_name = f"cVAE_{opt.run}.pt"
+# print("model to device")
+# print(net)
+save_name = os.path.join(opt.weight_output_path, f"cVAE_{opt.run}.pt")
 
 lr = 0.1
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=lr, weight_decay = 0.0001)
@@ -87,9 +76,9 @@ if opt.mode == "train":
     retrain = False
 
 ############### training #########################
-max_epochs = 1000
+max_epochs = opt.n_epochs
 early_stop = EarlyStop(patience = 20, save_name = save_name)
-net = net.to(device)
+# net = net.to(device)
 
 print("training on ", device)
 for epoch in range(max_epochs):
@@ -106,23 +95,30 @@ for epoch in range(max_epochs):
     start_time = time.time()
 
     for n, (Xs, Ys) in enumerate(train_dataloader):
-        Xs, Ys = preprocess(Xs, Ys)
+        start_time = time.time()
+        Xs, Ys = preprocess(Xs, Ys, device)
+        start_time = time.time()
+
         # print("Ys len: ", len(Ys))
-        Xs, Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+        # start_time = time.time()
+        # Xs, Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
+        # print("filter time: ", time.time() - start_time)
         # print("filtered Ys len: ", len(Ys))
 
-        Xs = Xs.to(device)
-        Ys = Ys.to(device)
+        # start_time = time.time()
+        # Xs = Xs.to(device)
+        # Ys = Ys.to(device)
 
         Xs_hat, mean, logvar = net(Xs, Ys)
-        
+        # print("forward time: ", time.time() - start_time)
+        # exit()
         Xs_means.append(torch.mean(Xs, axis=(0,2,3)).detach().cpu().numpy())
         Xs_hat_means.append(torch.mean(Xs_hat, axis=(0,2,3)).detach().cpu().numpy())
         means_means.append(torch.mean(mean, axis=0).detach().cpu().numpy())
         logvar_means.append(torch.mean(logvar, axis=0).detach().cpu().numpy())
 
         if epoch > 0 and epoch % 20 == 0:
-            if n % 10 == 0:
+            if n % 10 == 0 and opt.visualize:
                 if opt.model == "cVAE_1d":
                     visualize_reconstruct_signals(n-opt.batch_size+1, np.expand_dims(Xs.detach().cpu().numpy()[0], 0), 
                         Ys.detach().cpu().numpy(), np.expand_dims(Xs_hat.detach().cpu().numpy()[0], 0), f"./visualization/{opt.run}")
@@ -152,7 +148,7 @@ for epoch in range(max_epochs):
           % (epoch, np.mean(means_means), np.mean(logvar_means), accumulate_train_loss/n/opt.batch_size, accumulate_rec_loss/n/opt.batch_size, accumulate_kl_loss/n/opt.batch_size,
           accumulate_kl_loss/n/opt.batch_size * opt.beta, time.time() - start_time))
     
-    print("Xs_means: ", np.mean(Xs_means, axis = 0), ", Xs_hat_means: ", np.mean(Xs_hat_means, axis = 0))
+    # print("Xs_means: ", np.mean(Xs_means, axis = 0), ", Xs_hat_means: ", np.mean(Xs_hat_means, axis = 0))
 
     # adjust_lr(optimizer)
     

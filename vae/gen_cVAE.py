@@ -11,12 +11,14 @@ parser.add_argument("--n_epochs", type=int, default=50, help="number of epochs o
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--checkpoint", type=str, default="test", help="name of the checkpoint")
 parser.add_argument("--run", type=str, default="test", help="name of the run")
+parser.add_argument("--output_folder", type=str, default="", help="name of the run")
 parser.add_argument("--gen_n", type=int, default=100, help="Generate n samples")
 parser.add_argument("--model", type=str, default="cVAE_2d", help="Model: cVAE_1d or cVAE_2d")
 parser.add_argument("--gpu", type=str, default="0", help="Visible GPU")
 parser.add_argument("--signal_len", type=int, default=1024, help="length of the time series data")
 parser.add_argument("--gen_masked", type=bool, default=False, help="generate masked data or not")
 parser.add_argument("--visualize", type=bool, default=False, help="Visualize data or not")
+parser.add_argument("--cvae_config_file", type=str, default="./cVAE_config.yaml", help="config file for cVAE")
 
 opt = parser.parse_args()
 
@@ -48,22 +50,36 @@ else:
     for f in os.listdir(f"./visualization/{opt.run}_filtered"):
         os.remove(os.path.join(f"./visualization/{opt.run}_filtered", f))
 
-cvae_config = load_yaml("./cVAE_config.yaml")
+cvae_config = load_yaml(opt.cvae_config_file)
 
-TRAIN_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{(opt.run).split('_')[0]}"
-train_generated = True
-if not os.path.exists(TRAIN_PT_FILE_PATH):
-    Path(TRAIN_PT_FILE_PATH).mkdir(parents=True, exist_ok=True)
-    train_generated = False
+ORIGINAL_PT_FILE_PATH = "/home/tianshi/GAN_Vehicle/pt_files/original" # the original dataset pt files without any filtering
+ORIGINAL_PT_INDEX_PATH = "/home/tianshi/GAN_Vehicle/pt_indexes/original" # the original dataset index files without any filtering
 
-OUTPUT_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.run}"
+if len(opt.output_folder) > 0:
+    TRAIN_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.output_folder}/{(opt.run).split('_')[0]}"
+else:
+    TRAIN_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{(opt.run).split('_')[0]}"
+
+if len(opt.output_folder) > 0:
+    OUTPUT_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.output_folder}/{opt.run}"
+else:
+    OUTPUT_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.run}"
+
+if len(opt.output_folder) > 0:
+    OUTPUT_PT_INDEX_PATH = f"/home/tianshi/GAN_Vehicle/pt_indexes/{opt.output_folder}/{opt.run}"
+else:
+    OUTPUT_PT_FILE_PATH = f"/home/tianshi/GAN_Vehicle/pt_files/{opt.run}"
+
 if not os.path.exists(OUTPUT_PT_FILE_PATH):
     Path(OUTPUT_PT_FILE_PATH).mkdir(parents=True, exist_ok=True)
 else:
     for f in os.listdir(OUTPUT_PT_FILE_PATH):
         os.remove(os.path.join(OUTPUT_PT_FILE_PATH, f))
 
-OUTPUT_PT_INDEX_PATH = f"/home/tianshi/GAN_Vehicle/pt_indexes/{opt.run}"
+if len(opt.output_folder) > 0:
+    OUTPUT_PT_INDEX_PATH = f"/home/tianshi/GAN_Vehicle/pt_indexes/{opt.output_folder}/{opt.run}"
+else:
+    OUTPUT_PT_INDEX_PATH = f"/home/tianshi/GAN_Vehicle/pt_indexes/{opt.run}"
 if not os.path.exists(OUTPUT_PT_INDEX_PATH):
     Path(OUTPUT_PT_INDEX_PATH).mkdir(parents=True, exist_ok=True)
 else:
@@ -73,42 +89,14 @@ else:
 train_file_paths = []
 test_file_paths = []
 
-train_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/train_index.txt", is_train=False)
-test_dataloader = create_dataloader("/home/tianshi/data/ACIDS/random_partition_index_vehicle_classification/test_index.txt", is_train=False)
-
-train_counter = 0
-test_counter = 0
-speed_set = set()
-distance_set = set()
-for n, (Xs, Ys) in enumerate(train_dataloader):
-    Xs, Ys = preprocess(Xs, Ys)
-    
-    if not train_generated:
-        unfiltered_Xs, unfiltered_Ys = filter_train_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"])
-        for x, y in zip(unfiltered_Xs, unfiltered_Ys):
-            vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-            speed_set.add(speed.detach().item())
-            distance_set.add(distance.detach().item())
-            save_as_pt(x, y, os.path.join(TRAIN_PT_FILE_PATH, f"train_{train_counter}.pt"))
-            train_file_paths.append(os.path.join(TRAIN_PT_FILE_PATH, f"train_{train_counter}.pt"))
-            train_counter += 1
-
-    filtered_Xs, filtered_Ys = get_filtered_data(Xs, Ys, cvae_config["masked_vehicle_types"], cvae_config["masked_terrain_types"]) # Use as the testing data for the classifier
-    for x, y in zip(filtered_Xs, filtered_Ys):
-        if opt.visualize:
-            vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-            visualize_single_spect(f"{test_counter}-v{vehicle_type}_s{int(speed)}_t{terrain_type}_d{int(distance)}", x.detach().numpy(), f"./visualization/{opt.run}_filtered")
-        
-        vehicle_type, speed, terrain_type, distance = label_to_attributes(y)
-        speed_set.add(speed.detach().item())
-        distance_set.add(distance.detach().item())
-        
-        save_as_pt(x, y, os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
-        test_file_paths.append(os.path.join(OUTPUT_PT_FILE_PATH, f"test_{test_counter}.pt"))
-        test_counter += 1
-
-print("speeds: ", speed_set)
-print("distances: ", distance_set)
+with open(os.path.join(ORIGINAL_PT_INDEX_PATH, "train_index.txt"), "r") as f:
+    for line in f:
+        file_path = line[:-1]
+        label = torch.load(file_path)["label"]
+        if label["vehicle_type"].detach().item() not in cvae_config["masked_vehicle_types"] or label["terrain"].detach().item() not in cvae_config["masked_terrain_types"]:
+            train_file_paths.append(file_path)
+        else:
+            test_file_paths.append(file_path)
 
 ############## loading models ###################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -120,14 +108,9 @@ elif opt.model == "cVAE_2d":
 
 net.to(device)
 net.eval()
-print(net)
-save_name = f"cVAE_{opt.checkpoint}.pt"
-
-# def one_hot_encode(n, N):
-#     enc = np.zeros(N)
-#     enc[n] = 1
-#     return enc.tolist()
-
+# print(net)
+save_name = f"./weights/{opt.checkpoint}"
+print("save_name: ", save_name)
 if os.path.exists(save_name):
     checkpoint = torch.load(save_name, map_location = device)
     net.load_state_dict(checkpoint["net"])
@@ -158,9 +141,15 @@ for vehicle_type in cvae_config["masked_vehicle_types"]:
 print("train_file_paths: ", len(train_file_paths))
 print("test_file_paths: ", len(test_file_paths))
 
-with open(os.path.join(OUTPUT_PT_INDEX_PATH, "train_index.txt"), "w") as f:
+with open(os.path.join(OUTPUT_PT_INDEX_PATH, "train_index_aug.txt"), "w") as f:
     for file_path in train_file_paths:
         f.write(file_path + "\n")
+
+with open(os.path.join(OUTPUT_PT_INDEX_PATH, "train_index_no-aug.txt"), "w") as f:
+    for file_path in train_file_paths:
+        if "gen" not in os.path.basename(file_path):
+            f.write(file_path + "\n")
+
 
 with open(os.path.join(OUTPUT_PT_INDEX_PATH, "val_index.txt"), "w") as f:
     for file_path in test_file_paths:
